@@ -46,8 +46,8 @@
 На рабочей машине или на сервере:
 
 ```bash
-git clone https://github.com/ACPogadaev/amnezia-vpn-route-balancer.git
-cd amnezia-vpn-route-balancer
+git clone https://github.com/ACPogadaev/Amnezia_Routing_and_Load_balancer.git
+cd Amnezia_Routing_and_Load_balancer
 cp config/deployment.env.example config/deployment.env
 nano config/deployment.env
 python3 tools/fetch-iana-registry.py

@@ -136,9 +136,9 @@ docker image inspect amnezia-awg2 >/dev/null
 
 ```bash
 cd /opt
-sudo git clone https://github.com/ACPogadaev/amnezia-vpn-route-balancer.git
-sudo chown -R root:root /opt/amnezia-vpn-route-balancer
-cd /opt/amnezia-vpn-route-balancer
+sudo git clone https://github.com/ACPogadaev/Amnezia_Routing_and_Load_balancer.git
+sudo chown -R root:root /opt/Amnezia_Routing_and_Load_balancer
+cd /opt/Amnezia_Routing_and_Load_balancer
 git status --short
 ```
 
@@ -175,7 +175,7 @@ sudo install -m 0600 /secure/source/egress3.conf /root/amnezia-lb-input/egress3.
 ## 9. Конфигурация проекта
 
 ```bash
-cd /opt/amnezia-vpn-route-balancer
+cd /opt/Amnezia_Routing_and_Load_balancer
 cp config/deployment.env.example config/deployment.env
 chmod 0600 config/deployment.env
 nano config/deployment.env
@@ -187,7 +187,7 @@ nano config/deployment.env
 
 ```bash
 sudo install -m 0600 /secure/source/routes.txt /root/amnezia-lb-input/routes.txt
-cd /opt/amnezia-vpn-route-balancer
+cd /opt/Amnezia_Routing_and_Load_balancer
 python3 tools/fetch-iana-registry.py
 ```
 
@@ -215,7 +215,7 @@ cat build-report.json
 ## 12. Read-only preflight
 
 ```bash
-cd /opt/amnezia-vpn-route-balancer/dist/release-new
+cd /opt/Amnezia_Routing_and_Load_balancer/dist/release-new
 sudo ./v2/install-files.sh /root/amnezia-lb-input/main.conf
 ```
 
@@ -238,7 +238,7 @@ sudo /etc/amnezia-lb-v2/host/verify.sh
 ## 14. Установка и активация трёх выходов
 
 ```bash
-cd /opt/amnezia-vpn-route-balancer/dist/release-new
+cd /opt/Amnezia_Routing_and_Load_balancer/dist/release-new
 sudo ./v3/install-files.sh \
   /root/amnezia-lb-input/egress2.conf \
   /root/amnezia-lb-input/egress3.conf
