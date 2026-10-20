@@ -1,0 +1,14 @@
+[Unit]
+Description=Amnezia LB v2 atomic host fail-closed guard
+DefaultDependencies=no
+After=local-fs.target
+Before=docker.service
+
+[Service]
+Type=oneshot
+Environment=AMNEZIA_LB_DIR=/etc/amnezia-lb-v2
+ExecStart=/etc/amnezia-lb-v2/host/guard-load.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

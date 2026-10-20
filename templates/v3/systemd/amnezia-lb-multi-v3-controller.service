@@ -1,0 +1,14 @@
+[Unit]
+Description=Amnezia LB v3 health and load-aware controller
+Requires=amnezia-lb-multi-v3-egress.service
+After=amnezia-lb-multi-v3-egress.service
+
+[Service]
+Type=simple
+Environment=AMNEZIA_LB_MULTI_DIR=/etc/amnezia-lb-multi-v3
+ExecStart=/etc/amnezia-lb-multi-v3/host/controller.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

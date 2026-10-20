@@ -1,0 +1,15 @@
+[Unit]
+Description=Amnezia LB v2 egress health controller
+Requires=amnezia-lb-v2-pilot.service
+After=amnezia-lb-v2-pilot.service
+PartOf=amnezia-lb-v2-pilot.service
+
+[Service]
+Type=simple
+Environment=AMNEZIA_LB_DIR=/etc/amnezia-lb-v2
+ExecStart=/etc/amnezia-lb-v2/host/health-controller.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

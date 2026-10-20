@@ -1,0 +1,32 @@
+[
+  {
+    "name": "main",
+    "container": "amnezia-egress-main-pilot-v2",
+    "awg_if": "awg-main",
+    "awg_ip": "@@MAIN_AWG_IP@@",
+    "expected_exit_ip": "@@MAIN_EXPECTED_EXIT_IP@@",
+    "mark": 513,
+    "ready_file": "/run/amnezia-lb-v2/egress-policy-ready",
+    "forward_helper": "/etc/amnezia-lb-v2/host/egress-forward-enable.sh"
+  },
+  {
+    "name": "pgdl",
+    "container": "amnezia-egress-2-v3",
+    "awg_if": "awg-egress2",
+    "awg_ip": "@@EGRESS2_AWG_IP@@",
+    "expected_exit_ip": "@@EGRESS2_EXPECTED_EXIT_IP@@",
+    "mark": 514,
+    "ready_file": "/run/amnezia-lb-multi-v3/egress-policy-ready",
+    "forward_helper": "/etc/amnezia-lb-multi-v3/host/egress-forward-enable.sh"
+  },
+  {
+    "name": "ae",
+    "container": "amnezia-egress-3-v3",
+    "awg_if": "awg-egress3",
+    "awg_ip": "@@EGRESS3_AWG_IP@@",
+    "expected_exit_ip": "@@EGRESS3_EXPECTED_EXIT_IP@@",
+    "mark": 515,
+    "ready_file": "/run/amnezia-lb-multi-v3/egress-policy-ready",
+    "forward_helper": "/etc/amnezia-lb-multi-v3/host/egress-forward-enable.sh"
+  }
+]

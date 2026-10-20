@@ -1,0 +1,20 @@
+# Local configuration and secrets
+config/deployment.env
+*.conf
+*.key
+*.pem
+routes.txt
+routes-*.txt
+
+# Generated artifacts
+dist/
+work/
+data/iana-ipv4-special-registry.csv
+__pycache__/
+*.py[cod]
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

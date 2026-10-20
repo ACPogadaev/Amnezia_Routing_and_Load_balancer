@@ -1,0 +1,10 @@
+flush table inet amnezia_lb_balance_v3
+add chain inet amnezia_lb_balance_v3 prerouting { type filter hook prerouting priority -5; policy accept; }
+add chain inet amnezia_lb_balance_v3 select
+add rule inet amnezia_lb_balance_v3 prerouting iifname "amlt0" ip saddr 172.30.250.10 ct mark 0x00000201 meta mark set 0x00000201 comment "v3 restore main"
+add rule inet amnezia_lb_balance_v3 prerouting iifname "amlt0" ip saddr 172.30.250.10 ct mark 0x00000202 meta mark set 0x00000202 comment "v3 restore pgdl"
+add rule inet amnezia_lb_balance_v3 prerouting iifname "amlt0" ip saddr 172.30.250.10 ct mark 0x00000203 meta mark set 0x00000203 comment "v3 restore ae"
+add rule inet amnezia_lb_balance_v3 prerouting iifname "amlt0" ip saddr 172.30.250.10 ct mark 0x000002ff meta mark set 0x000002ff comment "v3 restore fail"
+add rule inet amnezia_lb_balance_v3 prerouting iifname "amlt0" ip saddr 172.30.250.10 ct mark 0x00000000 jump select comment "v3 select new flow"
+add rule inet amnezia_lb_balance_v3 prerouting iifname "amlt0" ip saddr 172.30.250.10 ct mark 0x00000000 ct mark set meta mark comment "v3 pin new flow"
+add rule inet amnezia_lb_balance_v3 select meta mark set 0x000002ff comment "v3 select fail"

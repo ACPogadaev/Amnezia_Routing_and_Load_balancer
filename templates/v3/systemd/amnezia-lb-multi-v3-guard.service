@@ -1,0 +1,15 @@
+[Unit]
+Description=Amnezia LB v3 atomic multi-egress guard
+DefaultDependencies=no
+After=local-fs.target amnezia-lb-v2-guard.service
+Before=docker.service
+Requires=amnezia-lb-v2-guard.service
+
+[Service]
+Type=oneshot
+Environment=AMNEZIA_LB_MULTI_DIR=/etc/amnezia-lb-multi-v3
+ExecStart=/etc/amnezia-lb-multi-v3/host/guard-load.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

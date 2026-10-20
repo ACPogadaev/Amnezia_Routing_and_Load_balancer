@@ -1,0 +1,17 @@
+[Unit]
+Description=Amnezia LB v2 single-egress pilot
+Wants=docker.service
+Requires=amnezia-lb-v2-guard.service amnezia-lb-v2-ingress-router.service
+After=docker.service amnezia-lb-v2-guard.service amnezia-lb-v2-ingress-router.service
+
+[Service]
+Type=oneshot
+Environment=AMNEZIA_LB_DIR=/etc/amnezia-lb-v2
+ExecStart=/etc/amnezia-lb-v2/host/pilot-start.sh
+ExecStop=/etc/amnezia-lb-v2/host/pilot-stop.sh
+RemainAfterExit=yes
+TimeoutStartSec=180
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,72 @@
+services:
+  egress-pgdl:
+    image: amnezia-awg2
+    container_name: ${PGDL_CONTAINER}
+    entrypoint: [dumb-init, /bin/bash, /run/amnezia-lb-multi-v3/egress-start.sh]
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun:/dev/net/tun]
+    sysctls:
+      net.ipv4.ip_forward: "0"
+      net.ipv4.conf.all.rp_filter: "2"
+      net.ipv4.conf.default.rp_filter: "2"
+    environment:
+      EGRESS_AWG_IF: ${PGDL_AWG_IF}
+      EGRESS_AWG_IP: ${PGDL_AWG_IP}
+      EGRESS_AWG_ENDPOINT_IP: ${PGDL_ENDPOINT_IP}
+      EGRESS_AWG_ENDPOINT_PORT: ${PGDL_ENDPOINT_PORT}
+      TRANSIT_GATEWAY: ${PGDL_GATEWAY}
+      EGRESS_POLICY_TABLE: ${PGDL_POLICY_TABLE}
+      INGRESS_TRANSIT_IP: ${INGRESS_TRANSIT_IP}
+    healthcheck:
+      test: [CMD-SHELL, "awg show ${PGDL_AWG_IF} >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+      start_period: 2s
+    volumes:
+      - /opt/amnezia-lb-multi-v3/secrets/awg-pgdl.conf:/etc/amnezia/amneziawg/awg-pgdl.conf:ro
+      - /etc/amnezia-lb-multi-v3/egress/egress-start.sh:/run/amnezia-lb-multi-v3/egress-start.sh:ro
+    networks:
+      pgdl:
+        ipv4_address: ${PGDL_CONTAINER_IP}
+
+  egress-ae:
+    image: amnezia-awg2
+    container_name: ${AE_CONTAINER}
+    entrypoint: [dumb-init, /bin/bash, /run/amnezia-lb-multi-v3/egress-start.sh]
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun:/dev/net/tun]
+    sysctls:
+      net.ipv4.ip_forward: "0"
+      net.ipv4.conf.all.rp_filter: "2"
+      net.ipv4.conf.default.rp_filter: "2"
+    environment:
+      EGRESS_AWG_IF: ${AE_AWG_IF}
+      EGRESS_AWG_IP: ${AE_AWG_IP}
+      EGRESS_AWG_ENDPOINT_IP: ${AE_ENDPOINT_IP}
+      EGRESS_AWG_ENDPOINT_PORT: ${AE_ENDPOINT_PORT}
+      TRANSIT_GATEWAY: ${AE_GATEWAY}
+      EGRESS_POLICY_TABLE: ${AE_POLICY_TABLE}
+      INGRESS_TRANSIT_IP: ${INGRESS_TRANSIT_IP}
+    healthcheck:
+      test: [CMD-SHELL, "awg show ${AE_AWG_IF} >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+      start_period: 2s
+    volumes:
+      - /opt/amnezia-lb-multi-v3/secrets/awg-ae.conf:/etc/amnezia/amneziawg/awg-ae.conf:ro
+      - /etc/amnezia-lb-multi-v3/egress/egress-start.sh:/run/amnezia-lb-multi-v3/egress-start.sh:ro
+    networks:
+      ae:
+        ipv4_address: ${AE_CONTAINER_IP}
+
+networks:
+  pgdl:
+    external: true
+    name: ${PGDL_NETWORK}
+  ae:
+    external: true
+    name: ${AE_NETWORK}

@@ -1,0 +1,30 @@
+add table inet amnezia_lb_v2
+add set inet amnezia_lb_v2 target_v4 { type ipv4_addr; flags interval; }
+add element inet amnezia_lb_v2 target_v4 {
+    @@TARGET_ELEMENTS@@
+}
+add set inet amnezia_lb_v2 egress_endpoint_v4 { type ipv4_addr; flags interval; }
+add element inet amnezia_lb_v2 egress_endpoint_v4 { @@MAIN_ENDPOINT_IP@@ }
+add chain inet amnezia_lb_v2 forward_guard { type filter hook forward priority -5; policy accept; }
+
+# Docker DNATs public UDP @@INGRESS_AWG_PORT@@ to @@INGRESS_OUTER_IP@@ on amn0. Only tagged AWG
+# transport may use that exact reverse path; all other traffic from amn0 is
+# blocked. The OUTPUT tag is added only after namespace routing is ready.
+add rule inet amnezia_lb_v2 forward_guard iifname "@@INGRESS_OUTER_BRIDGE@@" oifname "@@PUBLIC_IF@@" ip saddr @@INGRESS_OUTER_IP@@ meta l4proto != udp counter drop comment "v2 transport reject non-udp"
+add rule inet amnezia_lb_v2 forward_guard iifname "@@INGRESS_OUTER_BRIDGE@@" oifname "@@PUBLIC_IF@@" ip saddr @@INGRESS_OUTER_IP@@ udp sport != @@INGRESS_AWG_PORT@@ counter drop comment "v2 transport reject wrong-port"
+add rule inet amnezia_lb_v2 forward_guard iifname "@@INGRESS_OUTER_BRIDGE@@" oifname "@@PUBLIC_IF@@" ip saddr @@INGRESS_OUTER_IP@@ udp sport @@INGRESS_AWG_PORT@@ ip dscp != 46 counter drop comment "v2 transport reject untagged"
+add rule inet amnezia_lb_v2 forward_guard iifname "@@INGRESS_OUTER_BRIDGE@@" oifname "@@PUBLIC_IF@@" ip saddr @@INGRESS_OUTER_IP@@ udp sport @@INGRESS_AWG_PORT@@ ip dscp 46 counter accept comment "v2 allow tagged transport reply"
+
+# Docker's default bridge is an attached but forbidden alternate path.
+add rule inet amnezia_lb_v2 forward_guard iifname "@@INGRESS_AUX_BRIDGE@@" oifname "@@PUBLIC_IF@@" ip saddr @@INGRESS_AUX_IP@@ counter drop comment "v2 reject auxiliary bridge"
+
+# The direct-user bridge may carry every IPv4 destination except target_v4.
+# Do not constrain this guard by source: an established flow can retain an
+# older conntrack SNAT address after the ingress classifier is lost.
+add rule inet amnezia_lb_v2 forward_guard iifname "amld0" oifname "@@PUBLIC_IF@@" ip daddr @target_v4 counter drop comment "v2 target cannot use direct"
+
+# The transit bridge has one public exception: encrypted AWG transport from
+# the egress router. The catch-all also blocks a packet that retains ingress
+# source 172.30.250.10 while an egress namespace is starting or restarting.
+add rule inet amnezia_lb_v2 forward_guard iifname "amlt0" oifname "@@PUBLIC_IF@@" ip saddr 172.30.250.11 ip daddr @egress_endpoint_v4 udp dport 35367 counter accept comment "v2 allow egress outer transport"
+add rule inet amnezia_lb_v2 forward_guard iifname "amlt0" oifname "@@PUBLIC_IF@@" counter drop comment "v2 reject all other transit public"

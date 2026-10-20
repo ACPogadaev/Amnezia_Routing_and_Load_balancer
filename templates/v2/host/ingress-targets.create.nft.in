@@ -1,0 +1,8 @@
+add table inet amnezia_lb_v2_targets
+add set inet amnezia_lb_v2_targets target_v4 { type ipv4_addr; flags interval; }
+add element inet amnezia_lb_v2_targets target_v4 {
+    @@TARGET_ELEMENTS@@
+}
+add chain inet amnezia_lb_v2_targets classify { type filter hook prerouting priority -151; policy accept; }
+add rule inet amnezia_lb_v2_targets classify iifname "awg0" ip saddr 10.8.1.0/24 ip dscp set 0 comment "v2 reset client DSCP"
+add rule inet amnezia_lb_v2_targets classify iifname "awg0" ip saddr 10.8.1.0/24 ip daddr @target_v4 meta mark set 0x101 comment "v2 classify active targets"

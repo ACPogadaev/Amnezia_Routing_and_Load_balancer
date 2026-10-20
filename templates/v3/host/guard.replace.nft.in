@@ -1,0 +1,14 @@
+flush table inet amnezia_lb_multi_v3
+add chain inet amnezia_lb_multi_v3 forward_guard { type filter hook forward priority -6; policy accept; }
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amlt0" oifname "amlp0" ip saddr 172.30.250.10 counter accept comment "v3 allow ingress to pgdl"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amlp0" oifname "amlt0" ip daddr 172.30.250.10 ct state established,related counter accept comment "v3 allow pgdl replies"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amlt0" oifname "amlp0" counter drop comment "v3 reject other ingress pgdl"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amlp0" oifname "amlt0" counter drop comment "v3 reject other pgdl ingress"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amlt0" oifname "amla0" ip saddr 172.30.250.10 counter accept comment "v3 allow ingress to ae"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amla0" oifname "amlt0" ip daddr 172.30.250.10 ct state established,related counter accept comment "v3 allow ae replies"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amlt0" oifname "amla0" counter drop comment "v3 reject other ingress ae"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amla0" oifname "amlt0" counter drop comment "v3 reject other ae ingress"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amlp0" oifname "@@PUBLIC_IF@@" ip saddr 172.30.251.11 ip daddr @@EGRESS2_ENDPOINT_IP@@ udp dport 33592 counter accept comment "v3 allow pgdl outer transport"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amlp0" oifname "@@PUBLIC_IF@@" counter drop comment "v3 reject other pgdl public"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amla0" oifname "@@PUBLIC_IF@@" ip saddr 172.30.252.11 ip daddr @@EGRESS3_ENDPOINT_IP@@ udp dport 43999 counter accept comment "v3 allow ae outer transport"
+add rule inet amnezia_lb_multi_v3 forward_guard iifname "amla0" oifname "@@PUBLIC_IF@@" counter drop comment "v3 reject other ae public"

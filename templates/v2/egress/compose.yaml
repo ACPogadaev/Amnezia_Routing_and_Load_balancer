@@ -1,0 +1,47 @@
+services:
+  egress-main:
+    image: amnezia-awg2
+    container_name: ${EGRESS_CONTAINER}
+    entrypoint:
+      - dumb-init
+      - /bin/bash
+      - /run/amnezia-lb-v2/egress-start.sh
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      # Forwarding starts disabled. After egress-start publishes policy
+      # readiness, a PID-checked host helper enables this namespaced sysctl.
+      net.ipv4.ip_forward: "0"
+      net.ipv4.conf.all.rp_filter: "2"
+      net.ipv4.conf.default.rp_filter: "2"
+    environment:
+      EGRESS_AWG_IF: ${EGRESS_AWG_IF}
+      EGRESS_AWG_IP: ${EGRESS_AWG_IP}
+      EGRESS_AWG_ENDPOINT_IP: ${EGRESS_AWG_ENDPOINT_IP}
+      EGRESS_AWG_ENDPOINT_PORT: ${EGRESS_AWG_ENDPOINT_PORT}
+      TRANSIT_GATEWAY: ${TRANSIT_GATEWAY}
+      EGRESS_POLICY_TABLE: ${EGRESS_POLICY_TABLE}
+      INGRESS_TRANSIT_IP: ${INGRESS_TRANSIT_IP}
+      EGRESS_START_DELAY_SECONDS: ${EGRESS_START_DELAY_SECONDS}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - awg show ${EGRESS_AWG_IF} >/dev/null 2>&1
+      interval: 5s
+      timeout: 2s
+      retries: 12
+      start_period: 2s
+    volumes:
+      - /opt/amnezia-lb-v2/secrets/awg-main.conf:/etc/amnezia/amneziawg/awg-main.conf:ro
+      - /etc/amnezia-lb-v2/egress/egress-start.sh:/run/amnezia-lb-v2/egress-start.sh:ro
+    networks:
+      transit:
+        ipv4_address: ${EGRESS_CONTAINER_IP}
+
+networks:
+  transit:
+    external: true
+    name: ${TRANSIT_NETWORK}

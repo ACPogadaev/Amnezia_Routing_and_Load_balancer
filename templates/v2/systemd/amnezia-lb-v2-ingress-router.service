@@ -1,0 +1,16 @@
+[Unit]
+Description=Amnezia LB v2 ingress namespace router
+Wants=docker.service
+Requires=amnezia-lb-v2-guard.service
+After=docker.service amnezia-lb-v2-guard.service
+Before=amnezia-lb-v2-pilot.service
+
+[Service]
+Type=simple
+Environment=AMNEZIA_LB_DIR=/etc/amnezia-lb-v2
+ExecStart=/etc/amnezia-lb-v2/host/ingress-router-loop.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
