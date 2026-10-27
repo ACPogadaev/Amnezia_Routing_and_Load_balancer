@@ -1,7 +1,7 @@
 [Unit]
-Description=Amnezia LB v3 additional egress containers
-Wants=docker.service
-Requires=amnezia-lb-multi-v3-guard.service amnezia-lb-v2-pilot.service
+Description=Amnezia LB v4 additional egress containers
+Wants=docker.service amnezia-lb-v2-pilot.service
+Requires=amnezia-lb-multi-v3-guard.service
 After=docker.service amnezia-lb-multi-v3-guard.service amnezia-lb-v2-pilot.service
 
 [Service]

@@ -63,13 +63,32 @@ existing AmneziaWG ingress container
 Контроллер проверяет для каждого выхода:
 
 - контейнер запущен;
-- AWG-интерфейс доступен;
-- handshake достаточно свежий;
-- внешний HTTP endpoint отвечает через адрес AWG-интерфейса;
+- AWG-интерфейс существует, поднят и имеет ожидаемый адрес;
+- forwarding, policy lookup, парный `unreachable`, FORWARD/SNAT и OUTPUT guard;
+- handshake ожидаемого peer достаточно свежий;
+- внешний HTTPS endpoint отвечает через адрес AWG-интерфейса;
 - наблюдаемый внешний IP совпадает с `*_EXPECTED_EXIT_IP`;
-- дополнительный TCP endpoint достижим.
+- sample соответствует текущим instance и generation;
+- RX/TX counters читаются.
 
 Выход исключается после `HEALTH_FAILURE_THRESHOLD` последовательных ошибок и возвращается после `HEALTH_SUCCESS_THRESHOLD` успехов. EWMA скорости туннеля снижает долю новых buckets у более загруженного выхода, но не обещает точного деления полосы.
+
+Controller и Docker healthcheck используют один probe lock. Docker может повторно
+использовать только свежий атомарный cache текущих instance/generation; простой
+конфликт двух collectors не считается сетевым отказом.
+
+## Quarantine и recovery
+
+Mark неработающего выхода добавляется в `quarantined_marks`. Отдельный forward
+hook блокирует оба направления уже отмеченных соединений, а новые buckets этому
+выходу не назначаются.
+
+Controlled recovery выключен по умолчанию. После явного включения lifecycle
+разрешён только именам из allowlist. Intent durable записывается до Docker RPC;
+cooldown, sliding-window budget и единственная параллельная операция ограничивают
+повторы. Неопределённый исход сохраняется как `outcome_unknown` и запрещает
+следующие действия до ручного доказательного разрешения. Входной Amnezia-контейнер
+не является recovery target.
 
 ## Fail-closed
 

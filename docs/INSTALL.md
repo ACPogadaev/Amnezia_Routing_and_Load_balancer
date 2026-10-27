@@ -262,6 +262,22 @@ sudo jq . /run/amnezia-lb-multi-v3/state.json
 
 Ожидается `mode` `balanced` или временно `degraded`, `infra_valid: true`, `admission_open: true`, свежий `time`, три healthy выхода в нормальном состоянии и ноль fail buckets.
 
+Новая сборка оставляет controlled recovery выключенным. Это намеренно: сначала
+должны быть подтверждены functional healthchecks, reboot acceptance и
+мониторинг. Порядок canary-включения описан в [RELEASE-V4.md](RELEASE-V4.md).
+
+Установите read-only monitor check:
+
+```bash
+sudo install -m 0755 \
+  /opt/Amnezia_Routing_and_Load_balancer/tools/check-runtime.py \
+  /usr/local/sbin/amnezia-lb-check
+sudo /usr/local/sbin/amnezia-lb-check
+```
+
+Коды возврата и рекомендуемые alerts приведены в
+[MONITORING.md](MONITORING.md).
+
 ## 15. Проверка после перезагрузки
 
 Сначала убедитесь, что VNC доступен:

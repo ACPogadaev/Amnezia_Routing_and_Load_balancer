@@ -26,17 +26,28 @@ services:
       EGRESS_POLICY_TABLE: ${EGRESS_POLICY_TABLE}
       INGRESS_TRANSIT_IP: ${INGRESS_TRANSIT_IP}
       EGRESS_START_DELAY_SECONDS: ${EGRESS_START_DELAY_SECONDS}
+      EGRESS_READY_FILE: /run/amnezia-lb-v2/egress-policy-ready
+      EGRESS_EXPECTED_EXIT_IP: ${EXPECTED_EXIT_IP}
+      HEALTH_URL: ${HEALTH_URL}
+      HEALTH_URL_SECONDARY: ${HEALTH_URL_SECONDARY}
+      HEALTH_MAX_HANDSHAKE_AGE_SECONDS: ${HEALTH_MAX_HANDSHAKE_AGE_SECONDS}
+      HEALTH_PROBE_TIMEOUT_SECONDS: ${HEALTH_PROBE_TIMEOUT_SECONDS}
+      HEALTH_CONNECT_TIMEOUT_SECONDS: ${HEALTH_CONNECT_TIMEOUT_SECONDS}
+      HEALTH_HTTP_TIMEOUT_SECONDS: ${HEALTH_HTTP_TIMEOUT_SECONDS}
+      HEALTH_CONFIG_GENERATION: ${HEALTH_CONFIG_GENERATION}
+      HEALTH_MAX_SAMPLE_AGE_SECONDS: ${HEALTH_MAX_SAMPLE_AGE_SECONDS}
     healthcheck:
       test:
         - CMD-SHELL
-        - awg show ${EGRESS_AWG_IF} >/dev/null 2>&1
-      interval: 5s
-      timeout: 2s
-      retries: 12
-      start_period: 2s
+        - timeout ${HEALTH_PROBE_TIMEOUT_SECONDS}s /run/amnezia-lb-health/egress-healthcheck.sh --docker
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
     volumes:
       - /opt/amnezia-lb-v2/secrets/awg-main.conf:/etc/amnezia/amneziawg/awg-main.conf:ro
       - /etc/amnezia-lb-v2/egress/egress-start.sh:/run/amnezia-lb-v2/egress-start.sh:ro
+      - /etc/amnezia-lb-v2/egress/egress-healthcheck.sh:/run/amnezia-lb-health/egress-healthcheck.sh:ro
     networks:
       transit:
         ipv4_address: ${EGRESS_CONTAINER_IP}

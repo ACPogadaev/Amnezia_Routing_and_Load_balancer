@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import ipaddress
 import json
 import sys
@@ -11,6 +12,10 @@ MARKS = {
     "v3 buckets ae": 0x203,
 }
 FAIL_MARK = 0x2FF
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--expected-state")
+args = parser.parse_args()
 
 
 def fail(message):
@@ -56,10 +61,10 @@ if len(tables) != 1 or tables[0].get("family") != "inet" or tables[0].get("name"
     fail("unexpected table definition")
 
 chains = [item["chain"] for item in data if "chain" in item]
-if len(chains) != 2:
-    fail("expected exactly two chains")
+if len(chains) != 3:
+    fail("expected exactly three chains")
 by_name = {chain.get("name"): chain for chain in chains}
-if set(by_name) != {"prerouting", "select"}:
+if set(by_name) != {"prerouting", "quarantine", "select"}:
     fail("unexpected chain names")
 prerouting = by_name["prerouting"]
 if not (
@@ -74,10 +79,49 @@ if not (
 select = by_name["select"]
 if set(select).difference({"family", "table", "name", "handle"}):
     fail("select must be a regular chain")
+quarantine = by_name["quarantine"]
+if not (
+    quarantine.get("family") == "inet"
+    and quarantine.get("table") == TABLE
+    and quarantine.get("type") == "filter"
+    and quarantine.get("hook") == "forward"
+    and quarantine.get("prio") == -5
+    and quarantine.get("policy") == "accept"
+):
+    fail("invalid quarantine chain")
+
+sets = [item["set"] for item in data if "set" in item]
+if len(sets) != 1:
+    fail("expected exactly one quarantine set")
+qset = sets[0]
+if qset.get("family") != "inet" or qset.get("table") != TABLE or qset.get("name") != "quarantined_marks" or qset.get("type") != "mark":
+    fail("invalid quarantine set")
+
+allowed_quarantine = {0x201, 0x202, 0x203}
+actual_quarantine = set()
+for value in qset.get("elem", []):
+    actual_quarantine.add(int(value))
+for item in data:
+    if "element" not in item:
+        continue
+    element = item["element"]
+    if element.get("name") != "quarantined_marks":
+        fail("unexpected set elements")
+    values = element.get("elem", [])
+    actual_quarantine.update(int(value) for value in values)
+if actual_quarantine - allowed_quarantine:
+    fail("quarantine set contains an unowned mark")
 
 rules = [item["rule"] for item in data if "rule" in item]
 pre_rules = [rule for rule in rules if rule.get("chain") == "prerouting"]
 select_rules = [rule for rule in rules if rule.get("chain") == "select"]
+quarantine_rules = [rule for rule in rules if rule.get("chain") == "quarantine"]
+if len(quarantine_rules) != 1:
+    fail("expected one quarantine rule")
+qrule = quarantine_rules[0]
+expected_quarantine_expr = [match(ct("mark"), "@quarantined_marks"), {"drop": None}]
+if qrule.get("comment") != "v4 quarantine ct mark both directions" or canonical_expr(qrule) != expected_quarantine_expr:
+    fail("invalid quarantine rule")
 if len(pre_rules) != 6:
     fail("expected six prerouting rules")
 
@@ -111,6 +155,7 @@ if fail_rule.get("comment") != "v3 select fail" or canonical_expr(fail_rule) != 
 
 covered = set()
 seen_marks = set()
+actual_buckets = [FAIL_MARK] * 256
 for rule in select_rules[:-1]:
     comment = rule.get("comment")
     if comment not in MARKS or comment in seen_marks:
@@ -136,6 +181,24 @@ for rule in select_rules[:-1]:
         if bucket > 255 or bucket in covered:
             fail(f"overlapping or out-of-range bucket {value}")
         covered.add(bucket)
+        actual_buckets[bucket] = MARKS[comment]
 
 if covered and covered != set(range(256)):
     fail(f"bucket coverage is incomplete: {len(covered)}/256")
+
+if args.expected_state:
+    try:
+        expected_state = json.loads(open(args.expected_state, encoding="utf-8").read())
+        expected_quarantine = {int(value) for value in expected_state["quarantined_marks"]}
+        expected_buckets = [int(value) for value in expected_state["bucket_marks"]]
+    except (OSError, KeyError, TypeError, ValueError) as error:
+        fail(f"invalid expected state: {error}")
+    if len(expected_buckets) != 256:
+        fail("expected bucket map must contain 256 marks")
+    if expected_quarantine != actual_quarantine:
+        fail(
+            f"quarantine readback mismatch: expected={sorted(expected_quarantine)} "
+            f"actual={sorted(actual_quarantine)}"
+        )
+    if expected_buckets != actual_buckets:
+        fail("bucket map readback mismatch")

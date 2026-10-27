@@ -18,15 +18,26 @@ services:
       TRANSIT_GATEWAY: ${PGDL_GATEWAY}
       EGRESS_POLICY_TABLE: ${PGDL_POLICY_TABLE}
       INGRESS_TRANSIT_IP: ${INGRESS_TRANSIT_IP}
+      EGRESS_READY_FILE: /run/amnezia-lb-multi-v3/egress-policy-ready
+      EGRESS_EXPECTED_EXIT_IP: ${PGDL_EXPECTED_EXIT_IP}
+      HEALTH_URL: ${HEALTH_URL}
+      HEALTH_URL_SECONDARY: ${HEALTH_URL_SECONDARY}
+      HEALTH_MAX_HANDSHAKE_AGE_SECONDS: ${HEALTH_MAX_HANDSHAKE_AGE_SECONDS}
+      HEALTH_PROBE_TIMEOUT_SECONDS: ${HEALTH_PROBE_TIMEOUT_SECONDS}
+      HEALTH_CONNECT_TIMEOUT_SECONDS: ${HEALTH_CONNECT_TIMEOUT_SECONDS}
+      HEALTH_HTTP_TIMEOUT_SECONDS: ${HEALTH_HTTP_TIMEOUT_SECONDS}
+      HEALTH_CONFIG_GENERATION: ${HEALTH_CONFIG_GENERATION}
+      HEALTH_MAX_SAMPLE_AGE_SECONDS: ${HEALTH_MAX_SAMPLE_AGE_SECONDS}
     healthcheck:
-      test: [CMD-SHELL, "awg show ${PGDL_AWG_IF} >/dev/null 2>&1"]
-      interval: 5s
-      timeout: 2s
-      retries: 12
-      start_period: 2s
+      test: [CMD-SHELL, "timeout ${HEALTH_PROBE_TIMEOUT_SECONDS}s /run/amnezia-lb-health/egress-healthcheck.sh --docker"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
     volumes:
       - /opt/amnezia-lb-multi-v3/secrets/awg-pgdl.conf:/etc/amnezia/amneziawg/awg-pgdl.conf:ro
       - /etc/amnezia-lb-multi-v3/egress/egress-start.sh:/run/amnezia-lb-multi-v3/egress-start.sh:ro
+      - /etc/amnezia-lb-multi-v3/egress/egress-healthcheck.sh:/run/amnezia-lb-health/egress-healthcheck.sh:ro
     networks:
       pgdl:
         ipv4_address: ${PGDL_CONTAINER_IP}
@@ -50,15 +61,26 @@ services:
       TRANSIT_GATEWAY: ${AE_GATEWAY}
       EGRESS_POLICY_TABLE: ${AE_POLICY_TABLE}
       INGRESS_TRANSIT_IP: ${INGRESS_TRANSIT_IP}
+      EGRESS_READY_FILE: /run/amnezia-lb-multi-v3/egress-policy-ready
+      EGRESS_EXPECTED_EXIT_IP: ${AE_EXPECTED_EXIT_IP}
+      HEALTH_URL: ${HEALTH_URL}
+      HEALTH_URL_SECONDARY: ${HEALTH_URL_SECONDARY}
+      HEALTH_MAX_HANDSHAKE_AGE_SECONDS: ${HEALTH_MAX_HANDSHAKE_AGE_SECONDS}
+      HEALTH_PROBE_TIMEOUT_SECONDS: ${HEALTH_PROBE_TIMEOUT_SECONDS}
+      HEALTH_CONNECT_TIMEOUT_SECONDS: ${HEALTH_CONNECT_TIMEOUT_SECONDS}
+      HEALTH_HTTP_TIMEOUT_SECONDS: ${HEALTH_HTTP_TIMEOUT_SECONDS}
+      HEALTH_CONFIG_GENERATION: ${HEALTH_CONFIG_GENERATION}
+      HEALTH_MAX_SAMPLE_AGE_SECONDS: ${HEALTH_MAX_SAMPLE_AGE_SECONDS}
     healthcheck:
-      test: [CMD-SHELL, "awg show ${AE_AWG_IF} >/dev/null 2>&1"]
-      interval: 5s
-      timeout: 2s
-      retries: 12
-      start_period: 2s
+      test: [CMD-SHELL, "timeout ${HEALTH_PROBE_TIMEOUT_SECONDS}s /run/amnezia-lb-health/egress-healthcheck.sh --docker"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
     volumes:
       - /opt/amnezia-lb-multi-v3/secrets/awg-ae.conf:/etc/amnezia/amneziawg/awg-ae.conf:ro
       - /etc/amnezia-lb-multi-v3/egress/egress-start.sh:/run/amnezia-lb-multi-v3/egress-start.sh:ro
+      - /etc/amnezia-lb-multi-v3/egress/egress-healthcheck.sh:/run/amnezia-lb-health/egress-healthcheck.sh:ro
     networks:
       ae:
         ipv4_address: ${AE_CONTAINER_IP}

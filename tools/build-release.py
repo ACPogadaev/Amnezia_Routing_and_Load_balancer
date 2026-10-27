@@ -58,10 +58,26 @@ REQUIRED = {
     "HEALTH_FAILURE_THRESHOLD",
     "HEALTH_SUCCESS_THRESHOLD",
     "HEALTH_MAX_HANDSHAKE_AGE_SECONDS",
+    "HEALTH_PROBE_TIMEOUT_SECONDS",
+    "HEALTH_CONNECT_TIMEOUT_SECONDS",
+    "HEALTH_HTTP_TIMEOUT_SECONDS",
+    "HEALTH_CONFIG_GENERATION",
+    "HEALTH_MAX_SAMPLE_AGE_SECONDS",
+    "ALLOW_LEGACY_PROBE",
     "LOAD_EWMA_ALPHA",
     "LOAD_REFERENCE_BPS",
     "LOAD_WEIGHT_FLOOR",
+    "RECOVERY_ENABLED",
+    "RECOVERY_ALLOWED_EGRESSES",
+    "RECOVERY_ALLOW_CRASHLOOP_CONTAINMENT",
+    "RECOVERY_FAILURE_THRESHOLD",
+    "RECOVERY_COOLDOWN_SECONDS",
+    "RECOVERY_WINDOW_SECONDS",
+    "RECOVERY_MAX_RESTARTS",
+    "RECOVERY_MAX_PARALLEL",
+    "RECOVERY_STARTUP_GRACE_SECONDS",
 }
+ALLOW_EMPTY = {"RECOVERY_ALLOWED_EGRESSES"}
 
 
 def fail(message: str) -> "NoReturn":
@@ -90,7 +106,10 @@ def load_env(path: pathlib.Path) -> dict[str, str]:
     missing = sorted(REQUIRED.difference(values))
     if missing:
         fail(f"configuration is missing keys: {', '.join(missing)}")
-    placeholders = sorted(key for key in REQUIRED if not values[key] or "CHANGE_ME" in values[key])
+    placeholders = sorted(
+        key for key in REQUIRED
+        if (not values[key] and key not in ALLOW_EMPTY) or "CHANGE_ME" in values[key]
+    )
     if placeholders:
         fail(f"replace placeholder values first: {', '.join(placeholders)}")
     return values
@@ -155,6 +174,50 @@ def validate(values: dict[str, str], networks: list[ipaddress.IPv4Network]) -> N
     }
     if len(endpoint_pairs) != 3:
         fail("the three egress endpoint IP:port pairs must be distinct")
+
+    integer_keys = (
+        "HEALTH_INTERVAL_SECONDS",
+        "HEALTH_TIMEOUT_SECONDS",
+        "HEALTH_FAILURE_THRESHOLD",
+        "HEALTH_SUCCESS_THRESHOLD",
+        "HEALTH_MAX_HANDSHAKE_AGE_SECONDS",
+        "HEALTH_PROBE_TIMEOUT_SECONDS",
+        "HEALTH_CONNECT_TIMEOUT_SECONDS",
+        "HEALTH_HTTP_TIMEOUT_SECONDS",
+        "HEALTH_MAX_SAMPLE_AGE_SECONDS",
+        "RECOVERY_FAILURE_THRESHOLD",
+        "RECOVERY_COOLDOWN_SECONDS",
+        "RECOVERY_WINDOW_SECONDS",
+        "RECOVERY_MAX_RESTARTS",
+        "RECOVERY_MAX_PARALLEL",
+        "RECOVERY_STARTUP_GRACE_SECONDS",
+    )
+    for key in integer_keys:
+        try:
+            value = int(values[key])
+        except ValueError:
+            fail(f"{key} must be an integer")
+        if value <= 0:
+            fail(f"{key} must be greater than zero")
+    for key in ("RECOVERY_ENABLED", "RECOVERY_ALLOW_CRASHLOOP_CONTAINMENT", "ALLOW_LEGACY_PROBE"):
+        if values[key] not in {"0", "1"}:
+            fail(f"{key} must be 0 or 1")
+    if int(values["RECOVERY_MAX_PARALLEL"]) != 1:
+        fail("RECOVERY_MAX_PARALLEL must be exactly 1")
+    if int(values["HEALTH_PROBE_TIMEOUT_SECONDS"]) >= 20:
+        fail("HEALTH_PROBE_TIMEOUT_SECONDS must be lower than the 20-second Docker health timeout")
+    if int(values["HEALTH_HTTP_TIMEOUT_SECONDS"]) > int(values["HEALTH_PROBE_TIMEOUT_SECONDS"]):
+        fail("HEALTH_HTTP_TIMEOUT_SECONDS must not exceed HEALTH_PROBE_TIMEOUT_SECONDS")
+    if int(values["HEALTH_CONNECT_TIMEOUT_SECONDS"]) > int(values["HEALTH_HTTP_TIMEOUT_SECONDS"]):
+        fail("HEALTH_CONNECT_TIMEOUT_SECONDS must not exceed HEALTH_HTTP_TIMEOUT_SECONDS")
+    if int(values["RECOVERY_COOLDOWN_SECONDS"]) > int(values["RECOVERY_WINDOW_SECONDS"]):
+        fail("RECOVERY_COOLDOWN_SECONDS must not exceed RECOVERY_WINDOW_SECONDS")
+    allowed_recovery = {item for item in values["RECOVERY_ALLOWED_EGRESSES"].split(",") if item}
+    unknown = allowed_recovery - {"main", "pgdl", "ae"}
+    if unknown:
+        fail(f"RECOVERY_ALLOWED_EGRESSES contains unknown names: {', '.join(sorted(unknown))}")
+    if values["RECOVERY_ENABLED"] == "1" and not allowed_recovery:
+        fail("RECOVERY_ALLOWED_EGRESSES must not be empty when RECOVERY_ENABLED=1")
 
 
 def load_normalizer():

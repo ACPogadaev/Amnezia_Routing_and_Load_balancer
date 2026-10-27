@@ -24,14 +24,19 @@ for tuple in "$PGDL_CONTAINER:/run/amnezia-lb-multi-v3/egress-policy-ready" \
     ready=/${tuple#*/}
     i=0
     while [ "$i" -lt 90 ]; do
-        status=$(docker inspect -f '{{.State.Health.Status}}' "$container" 2>/dev/null || true)
-        if [ "$status" = healthy ] && \
+        # The functional healthcheck requires forwarding, while forwarding may
+        # only be enabled after the container publishes its local policy-ready
+        # token. Waiting for Docker health here would therefore deadlock.
+        if docker exec "$container" test -s "$ready" 2>/dev/null && \
             "$BASE_DIR/host/egress-forward-enable.sh" "$container" "$ready" >/dev/null 2>&1; then
             break
         fi
-        [ "$status" != unhealthy ] || { docker logs --tail 50 "$container" >&2 || true; exit 1; }
         i=$((i + 1))
         sleep 1
     done
-    [ "$i" -lt 90 ] || { echo "$container did not become ready" >&2; exit 1; }
+    [ "$i" -lt 90 ] || {
+        echo "$container did not publish local policy readiness" >&2
+        docker logs --tail 50 "$container" >&2 || true
+        exit 1
+    }
 done

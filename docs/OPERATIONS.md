@@ -4,6 +4,7 @@
 
 ```bash
 sudo jq . /run/amnezia-lb-multi-v3/state.json
+sudo python3 /path/to/repository/tools/check-runtime.py
 sudo journalctl -u amnezia-lb-multi-v3-controller.service \
   --since '-30 min' --no-pager
 ```
@@ -19,6 +20,7 @@ sudo journalctl -u amnezia-lb-multi-v3-controller.service \
 - `healthy` — доступные egress names;
 - `bucket_counts` — распределение 256 buckets, включая `fail`;
 - диагностические причины конкретного egress.
+- `recovery_journal_valid`, `recovery_pending` и restart budget.
 
 ## Полная недеструктивная проверка
 
@@ -33,6 +35,32 @@ sudo ip -4 route show table 403
 ```
 
 `verify.sh` проверяет контрольные суммы установленных файлов, fingerprint nftables, policy rules, Docker guard, контейнеры, MSS, публичный IP каждого egress и состояние controller.
+
+Он также проверяет functional Docker health, соответствие recovery runtime
+файлу конфигурации, отсутствие pending fence и точное readback quarantine set.
+Исторический ненулевой Docker restart count сам по себе не делает текущий
+functional verify ошибочным; его рост контролируется мониторингом отдельно.
+
+Подробные alerts и интерпретация находятся в [MONITORING.md](MONITORING.md).
+
+## Controlled recovery
+
+Recovery выключен в новой сборке по умолчанию. Включайте сначала один canary
+через `deployment.env`, пересобирайте полный release и выполняйте обычную
+установку/проверку. Не редактируйте только runtime `multi.env` без сохранения
+соответствующего release и контрольных сумм.
+
+Журнал событий:
+
+```bash
+sudo journalctl -u amnezia-lb-multi-v3-controller.service -f |
+  grep 'recovery_event='
+sudo jq . /var/lib/amnezia-lb/recovery-state.json
+```
+
+`outcome_unknown` запрещает повторный restart. Сохраните journal, Docker events
+и identity контейнера; не удаляйте pending вручную. `recovery-resolve.py`
+используется только по процедуре с точным action ID и evidence file.
 
 ## Клиентская проверка
 

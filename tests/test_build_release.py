@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -82,6 +83,45 @@ class BuildReleaseTests(unittest.TestCase):
             self.assertNotIn("10.0.0.0/8", routed_text)
             self.assertIn("93.184.216.34/32", all_text)
             self.assertTrue((output / "SHA256SUMS").is_file())
+            self.assertTrue((output / "v2" / "egress" / "egress-healthcheck.sh").is_file())
+            self.assertTrue((output / "v3" / "egress" / "egress-healthcheck.sh").is_file())
+            runtime = root / "runtime-v3"
+            shutil.copytree(output / "v3", runtime)
+            shutil.copy2(runtime / "config" / "multi.env", runtime / "multi.env")
+            shutil.copy2(runtime / "config" / "egresses.json", runtime / "egresses.json")
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    """
+import importlib.util, os, pathlib, sys, types
+base=pathlib.Path(sys.argv[1])
+os.environ['AMNEZIA_LB_MULTI_DIR']=str(base)
+sys.modules.setdefault('fcntl', types.SimpleNamespace(LOCK_EX=2, LOCK_UN=8, flock=lambda *_args: None))
+spec=importlib.util.spec_from_file_location('built_controller', base/'host/controller.py')
+module=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+assert module.RECOVERY_ENABLED is False
+assert module.RECOVERY_ALLOWED == set()
+assert module.RECOVERY_MAX_PARALLEL == 1
+assert {item['name'] for item in module.EGRESSES} == {'main','pgdl','ae'}
+assert all(item.get('compose_file') and item.get('compose_service') for item in module.EGRESSES)
+old_monotonic, old_sleep, old_stopping = module.time.monotonic, module.time.sleep, module.stopping
+readings=iter([9.999, 10.001])
+sleeps=[]
+try:
+    module.stopping=False
+    module.time.monotonic=lambda: next(readings)
+    module.time.sleep=lambda delay: sleeps.append(delay) if delay >= 0 else (_ for _ in ()).throw(AssertionError(delay))
+    module.wait_until(10.0)
+    assert len(sleeps) == 1 and 0 < sleeps[0] <= 0.5
+finally:
+    module.time.monotonic, module.time.sleep, module.stopping = old_monotonic, old_sleep, old_stopping
+""",
+                    str(runtime),
+                ],
+                check=True,
+            )
 
 
 if __name__ == "__main__":

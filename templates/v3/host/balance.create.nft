@@ -1,6 +1,9 @@
 add table inet amnezia_lb_balance_v3
+add set inet amnezia_lb_balance_v3 quarantined_marks { type mark; }
 add chain inet amnezia_lb_balance_v3 prerouting { type filter hook prerouting priority -5; policy accept; }
+add chain inet amnezia_lb_balance_v3 quarantine { type filter hook forward priority -5; policy accept; }
 add chain inet amnezia_lb_balance_v3 select
+add rule inet amnezia_lb_balance_v3 quarantine ct mark @quarantined_marks drop comment "v4 quarantine ct mark both directions"
 add rule inet amnezia_lb_balance_v3 prerouting iifname "amlt0" ip saddr 172.30.250.10 ct mark 0x00000201 meta mark set 0x00000201 comment "v3 restore main"
 add rule inet amnezia_lb_balance_v3 prerouting iifname "amlt0" ip saddr 172.30.250.10 ct mark 0x00000202 meta mark set 0x00000202 comment "v3 restore pgdl"
 add rule inet amnezia_lb_balance_v3 prerouting iifname "amlt0" ip saddr 172.30.250.10 ct mark 0x00000203 meta mark set 0x00000203 comment "v3 restore ae"

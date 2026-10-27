@@ -41,7 +41,7 @@ for unit in amnezia-lb-multi-v3-guard.service \
             amnezia-lb-multi-v3-controller.service; do
     install -m 0644 "$PACKAGE_DIR/systemd/$unit" "/etc/systemd/system/$unit"
 done
-python3 -m py_compile "$ETC_DIR/host/controller.py"
+python3 -m py_compile "$ETC_DIR/host/controller.py" "$ETC_DIR/host/recovery-resolve.py"
 systemd-analyze verify \
     /etc/systemd/system/amnezia-lb-multi-v3-guard.service \
     /etc/systemd/system/amnezia-lb-multi-v3-egress.service \

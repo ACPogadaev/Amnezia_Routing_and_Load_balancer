@@ -1,5 +1,15 @@
 # Диагностика
 
+Сначала выполните read-only проверку:
+
+```bash
+sudo python3 /path/to/repository/tools/check-runtime.py
+sudo systemctl --failed --no-pager
+sudo journalctl -u amnezia-lb-multi-v3-controller.service --since '-30 min' --no-pager
+```
+
+Не начинайте с restart: сначала сохраните state, recovery journal и логи.
+
 ## VPN подключается, но весь Internet не работает
 
 Проверьте сначала входной transport и direct path:

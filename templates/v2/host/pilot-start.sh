@@ -15,22 +15,14 @@ docker compose \
 
 i=0
 while [ "$i" -lt 60 ]; do
-    status=$(docker inspect -f '{{.State.Health.Status}}' "$EGRESS_CONTAINER" 2>/dev/null || true)
-    case "$status" in
-        healthy)
-            if "$BASE_DIR/host/egress-forward-enable.sh" >/dev/null 2>&1; then
-                exit 0
-            fi
-            ;;
-        unhealthy)
-            docker logs --tail 50 "$EGRESS_CONTAINER" >&2 || true
-            exit 1
-            ;;
-    esac
+    if docker exec "$EGRESS_CONTAINER" test -s /run/amnezia-lb-v2/egress-policy-ready 2>/dev/null && \
+        "$BASE_DIR/host/egress-forward-enable.sh" >/dev/null 2>&1; then
+        exit 0
+    fi
     i=$((i + 1))
     sleep 1
 done
 
-echo "Egress container did not become healthy with forwarding enabled" >&2
+echo "Egress container did not publish local policy readiness" >&2
 docker logs --tail 50 "$EGRESS_CONTAINER" >&2 || true
 exit 1

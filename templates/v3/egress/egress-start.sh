@@ -51,6 +51,7 @@ trap cleanup EXIT
 
 [ "$(sysctl -n net.ipv4.ip_forward)" = 0 ]
 rm -f "$READY_FILE"
+rm -f /run/amnezia-lb-health/result.json /run/amnezia-lb-health/probe.lock
 iptables -P FORWARD DROP
 iptables -F FORWARD
 ip6tables -P FORWARD DROP 2>/dev/null || true
@@ -95,19 +96,13 @@ iptables -A OUTPUT -s "$EGRESS_AWG_IP/32" ! -o "$EGRESS_AWG_IF" -j REJECT
 ip route flush cache
 
 mkdir -p "$(dirname "$READY_FILE")"
-printf '%s\n' "$$" > "$READY_FILE.tmp"
+INSTANCE_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || printf '%s-%s\n' "$(date +%s)" "$$")
+printf '%s\n' "$INSTANCE_ID" > "$READY_FILE.tmp"
 mv -f "$READY_FILE.tmp" "$READY_FILE"
 
-i=0
-while [ "$i" -lt 60 ]; do
-    [ "$(sysctl -n net.ipv4.ip_forward)" = 1 ] && break
-    i=$((i + 1))
+while [ "$(sysctl -n net.ipv4.ip_forward)" != 1 ]; do
     sleep 1
 done
-[ "$(sysctl -n net.ipv4.ip_forward)" = 1 ] || {
-    echo "Host did not enable egress forwarding after policy readiness" >&2
-    exit 1
-}
 
 trap 'exit 0' TERM INT
 while :; do sleep 3600 & wait $!; done

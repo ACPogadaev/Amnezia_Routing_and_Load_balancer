@@ -6,6 +6,9 @@
     "awg_ip": "@@MAIN_AWG_IP@@",
     "expected_exit_ip": "@@MAIN_EXPECTED_EXIT_IP@@",
     "mark": 513,
+    "compose_project": "egress",
+    "compose_service": "egress-main",
+    "compose_file": "/etc/amnezia-lb-v2/egress/compose.yaml",
     "ready_file": "/run/amnezia-lb-v2/egress-policy-ready",
     "forward_helper": "/etc/amnezia-lb-v2/host/egress-forward-enable.sh"
   },
@@ -16,6 +19,9 @@
     "awg_ip": "@@EGRESS2_AWG_IP@@",
     "expected_exit_ip": "@@EGRESS2_EXPECTED_EXIT_IP@@",
     "mark": 514,
+    "compose_project": "egress",
+    "compose_service": "egress-pgdl",
+    "compose_file": "/etc/amnezia-lb-multi-v3/egress/compose.yaml",
     "ready_file": "/run/amnezia-lb-multi-v3/egress-policy-ready",
     "forward_helper": "/etc/amnezia-lb-multi-v3/host/egress-forward-enable.sh"
   },
@@ -26,6 +32,9 @@
     "awg_ip": "@@EGRESS3_AWG_IP@@",
     "expected_exit_ip": "@@EGRESS3_EXPECTED_EXIT_IP@@",
     "mark": 515,
+    "compose_project": "egress",
+    "compose_service": "egress-ae",
+    "compose_file": "/etc/amnezia-lb-multi-v3/egress/compose.yaml",
     "ready_file": "/run/amnezia-lb-multi-v3/egress-policy-ready",
     "forward_helper": "/etc/amnezia-lb-multi-v3/host/egress-forward-enable.sh"
   }

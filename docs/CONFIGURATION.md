@@ -204,7 +204,9 @@ HEALTH_URL=https://1.1.1.1/cdn-cgi/trace
 HEALTH_URL_SECONDARY=https://api.ipify.org
 ```
 
-Primary должен возвращать строку `ip=<IPv4>`. Secondary возвращает адрес как plain text и используется контроллером как дополнительный вариант. Если заменяете сервисы, сохраните ожидаемый формат или адаптируйте код health probe.
+Primary должен возвращать строку `ip=<IPv4>`. Secondary должен возвращать JSON
+вида `{"ip":"IPv4"}`. Если заменяете сервисы, сохраните ожидаемый формат или
+адаптируйте `egress-healthcheck.sh`.
 
 Для production лучше использовать собственный HTTPS endpoint и контролировать его доступность/лимиты.
 
@@ -215,6 +217,11 @@ Primary должен возвращать строку `ip=<IPv4>`. Secondary в
 - `HEALTH_FAILURE_THRESHOLD=3` — последовательные ошибки до исключения;
 - `HEALTH_SUCCESS_THRESHOLD=3` — последовательные успехи до возврата;
 - `HEALTH_MAX_HANDSHAKE_AGE_SECONDS=300` — максимально допустимый возраст AWG handshake.
+- `HEALTH_PROBE_TIMEOUT_SECONDS=15` — внешний предел всего functional probe;
+- `HEALTH_CONNECT_TIMEOUT_SECONDS=3` — предел установления HTTPS-соединения;
+- `HEALTH_HTTP_TIMEOUT_SECONDS=6` — предел одного HTTPS-запроса;
+- `HEALTH_MAX_SAMPLE_AGE_SECONDS=45` — допустимый возраст cache при совпадении instance/generation;
+- `ALLOW_LEGACY_PROBE=0` — запрещает ослабленный fallback без v4 probe.
 
 Три ошибки при интервале 10 секунд означают обнаружение примерно через 20–30 секунд плюс фактические timeout. Слишком малые значения вызовут flapping, слишком большие — долгий blackhole новых соединений.
 
@@ -226,7 +233,32 @@ Primary должен возвращать строку `ip=<IPv4>`. Secondary в
 
 Начните с значений примера. Изменяйте только после наблюдения `state.json` и фактических byte counters.
 
-## 10. Внутренняя адресация
+## 10. Controlled recovery
+
+Начальная безопасная конфигурация:
+
+```text
+RECOVERY_ENABLED=0
+RECOVERY_ALLOWED_EGRESSES=
+RECOVERY_ALLOW_CRASHLOOP_CONTAINMENT=0
+```
+
+После стабильного периода разрешите один canary из `main`, `pgdl`, `ae`:
+
+```text
+RECOVERY_ENABLED=1
+RECOVERY_ALLOWED_EGRESSES=pgdl
+```
+
+Остальные параметры задают число последовательных recoverable failures,
+cooldown, окно бюджета, максимум restart и startup grace. В текущей версии
+`RECOVERY_MAX_PARALLEL` обязан быть равен `1`.
+
+Не включайте recovery при неработающем мониторинге, invalid journal или
+неразобранном `outcome_unknown`. `wrong_exit_ip`, ошибки configuration/security,
+collector failures и общий внешний outage не должны вызывать restart.
+
+## 11. Внутренняя адресация
 
 Текущая версия фиксирует внутренние bridge/subnet/table/mark значения в шаблонах. Перед запуском убедитесь, что они свободны:
 
