@@ -47,6 +47,7 @@
 7. [Исправления functional health/recovery](docs/RELEASE-V4.md)
 8. [Диагностика типичных неисправностей](docs/TROUBLESHOOTING.md)
 9. [Обращение с секретами](SECURITY.md)
+10. [Снижение CPU контрольных служб](docs/CPU-CONTROL-PLANE.md)
 
 ## Мониторинг
 

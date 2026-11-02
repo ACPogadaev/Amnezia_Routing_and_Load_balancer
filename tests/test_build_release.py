@@ -71,7 +71,8 @@ class BuildReleaseTests(unittest.TestCase):
                 for path in output.rglob("*")
                 if path.is_file()
             )
-            self.assertNotIn("@@", all_text)
+            self.assertFalse("@@" in all_text, "release contains unresolved markers")
+            self.assertFalse(list(output.rglob("__pycache__")))
             routed_text = "\n".join(
                 path.read_text(encoding="utf-8")
                 for path in (
@@ -85,6 +86,11 @@ class BuildReleaseTests(unittest.TestCase):
             self.assertTrue((output / "SHA256SUMS").is_file())
             self.assertTrue((output / "v2" / "egress" / "egress-healthcheck.sh").is_file())
             self.assertTrue((output / "v3" / "egress" / "egress-healthcheck.sh").is_file())
+            for name in ("runtime_checks.py", "runtime-collect.py", "ingress-router.py"):
+                self.assertTrue((output / "v2" / "host" / name).is_file())
+            runtime_v2 = root / "runtime-v2"
+            shutil.copytree(output / "v2", runtime_v2)
+            shutil.copy2(runtime_v2 / "config" / "pilot.env", runtime_v2 / "pilot.env")
             runtime = root / "runtime-v3"
             shutil.copytree(output / "v3", runtime)
             shutil.copy2(runtime / "config" / "multi.env", runtime / "multi.env")
@@ -106,6 +112,8 @@ assert module.RECOVERY_ALLOWED == set()
 assert module.RECOVERY_MAX_PARALLEL == 1
 assert {item['name'] for item in module.EGRESSES} == {'main','pgdl','ae'}
 assert all(item.get('compose_file') and item.get('compose_service') for item in module.EGRESSES)
+module.ENV['V2_DIR']=str(base.parent/'runtime-v2')
+assert module.get_runtime_checks().base == base.parent/'runtime-v2'
 old_monotonic, old_sleep, old_stopping = module.time.monotonic, module.time.sleep, module.stopping
 readings=iter([9.999, 10.001])
 sleeps=[]
