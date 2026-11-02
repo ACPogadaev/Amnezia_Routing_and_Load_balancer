@@ -18,7 +18,7 @@ BASE = Path(os.environ.get("AMNEZIA_LB_MULTI_DIR", "/etc/amnezia-lb-multi-v3"))
 
 def read_env(path):
     result = {}
-    for raw in path.read_text().splitlines():
+    for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if line and not line.startswith("#") and "=" in line:
             key, value = line.split("=", 1)
@@ -57,6 +57,17 @@ RECOVERY_MAX_RESTARTS = int(ENV.get("RECOVERY_MAX_RESTARTS", "3"))
 RECOVERY_MAX_PARALLEL = int(ENV.get("RECOVERY_MAX_PARALLEL", "1"))
 STARTUP_GRACE = int(ENV.get("RECOVERY_STARTUP_GRACE_SECONDS", "90"))
 stopping = False
+runtime_checks = None
+forwarding_ready = {}
+
+
+def get_runtime_checks():
+    global runtime_checks
+    if runtime_checks is None:
+        sys.path.insert(0, str(Path(ENV["V2_DIR"]) / "host"))
+        from runtime_checks import RuntimeChecks
+        runtime_checks = RuntimeChecks(ENV["V2_DIR"], BASE)
+    return runtime_checks
 
 
 def recovery_log(event, **fields):
@@ -310,8 +321,7 @@ def check_ingress(identity):
     ready = Path("/run/amnezia-lb-v2/ingress.ready")
     if not ready.is_file() or ready.read_text().strip() != str(identity["pid"]):
         raise RuntimeError("ingress readiness does not match current namespace")
-    helper(str(Path(ENV["V2_DIR"]) / "host/ingress-check.sh"), str(identity["pid"]), timeout=25)
-    helper(str(Path(ENV["V2_DIR"]) / "host/ingress-targets-check.sh"), timeout=25)
+    get_runtime_checks().check_ingress(identity["pid"])
 
 
 def close_admission():
@@ -319,21 +329,25 @@ def close_admission():
 
 
 def ensure_infrastructure():
-    checks = [
-        ([str(BASE / "host/guard-check.sh")], [str(BASE / "host/guard-load.sh")]),
-        ([str(BASE / "host/balance-check.sh")], [str(BASE / "host/balance-load.sh")]),
-        ([str(BASE / "host/host-policy-check.sh")], [str(BASE / "host/host-policy-up.sh")]),
-        ([str(BASE / "host/docker-user-check.sh")], [str(BASE / "host/docker-user-install.sh")]),
-        ([str(Path(ENV["V2_DIR"]) / "host/docker-user-check.sh")],
-         [str(Path(ENV["V2_DIR"]) / "host/docker-user-install.sh")]),
+    checks = get_runtime_checks()
+    operations = [
+        (lambda: checks.check_guard(2), [str(Path(ENV["V2_DIR"]) / "host/guard-load.sh")]),
+        (lambda: checks.check_guard(3), [str(BASE / "host/guard-load.sh")]),
+        (lambda: helper(str(BASE / "host/balance-check.sh")), [str(BASE / "host/balance-load.sh")]),
+        (lambda: helper(str(BASE / "host/host-policy-check.sh")), [str(BASE / "host/host-policy-up.sh")]),
+        (lambda: checks.check_docker_user(3), [str(BASE / "host/docker-user-install.sh")]),
+        (lambda: checks.check_docker_user(2), [str(Path(ENV["V2_DIR"]) / "host/docker-user-install.sh")]),
     ]
     repaired = False
-    for check, repair in checks:
-        result = subprocess.run(check, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)
-        if result.returncode != 0:
+    for check, repair in operations:
+        try:
+            check()
+        except (ValueError, KeyError, OSError, subprocess.SubprocessError):
             close_admission()
+            checks.invalidate()
             run(repair, timeout=35)
-            run(check, timeout=25)
+            checks.invalidate()
+            check()
             repaired = True
     return repaired
 
@@ -446,14 +460,25 @@ def probe_one(egress, initial_identity):
     if ready.returncode != 0 or not instance_id:
         reason = "starting" if age < STARTUP_GRACE else "starting_timeout"
         return {"healthy": False, "reason": reason, "reason_scope": "local"}, initial_identity
+    prepared_key = (identity_key(initial_identity), instance_id)
     try:
-        enable_forwarding(egress)
+        if ALLOW_LEGACY_PROBE or forwarding_ready.get(egress["name"]) != prepared_key:
+            enable_forwarding(egress)
+            forwarding_ready[egress["name"]] = prepared_key
     except Exception as exc:
         reason = "starting" if age < STARTUP_GRACE else "forwarding_prepare_failed"
         return {"healthy": False, "reason": reason, "reason_scope": "local", "detail": str(exc)[-300:]}, initial_identity
     result = functional_probe(egress, instance_id)
+    # A prepared identity is only a hint to avoid repeating setup. The live
+    # functional probe still checks ip_forward every cycle and heals drift.
+    if result.get("reason") == "forwarding_disabled":
+        forwarding_ready.pop(egress["name"], None)
+        enable_forwarding(egress)
+        result = functional_probe(egress, instance_id)
+        forwarding_ready[egress["name"]] = prepared_key
     final_identity = identity_from_inspect(container_inspect(egress["container"]))
     if identity_key(final_identity) != identity_key(initial_identity):
+        forwarding_ready.pop(egress["name"], None)
         return {"healthy": False, "reason": "identity_changed", "reason_scope": "collector"}, final_identity
     return result, final_identity
 
@@ -684,15 +709,21 @@ def main():
             ingress_identity = None
             repaired = False
             try:
+                get_runtime_checks().begin_cycle()
                 run(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=8)
                 ingress_identity = identity_from_inspect(container_inspect(ENV["INGRESS_CONTAINER"]))
                 if not ingress_identity:
                     raise RuntimeError("ingress has no active namespace")
                 check_ingress(ingress_identity)
                 repaired = ensure_infrastructure()
+                if repaired:
+                    forwarding_ready.clear()
                 current_ingress = identity_from_inspect(container_inspect(ENV["INGRESS_CONTAINER"]))
                 if identity_key(current_ingress) != identity_key(ingress_identity):
                     raise RuntimeError("ingress namespace changed during reconciliation")
+                get_runtime_checks().assert_config_current()
+                if read_env(BASE / "multi.env") != ENV:
+                    raise RuntimeError("multi.env changed; restart controller for the new configuration")
                 common_valid = True
             except Exception as exc:
                 common_error = str(exc)
@@ -775,6 +806,9 @@ def main():
                     state["recoverable_failures"] = 0
                     state["recoverable_reason"] = None
                     continue
+                # Deduplicate failures as well as successes when consumers
+                # see the same atomic cached sample more than once.
+                state["last_sample_id"] = sample_id
                 if result.get("healthy"):
                     total_bytes = int(result.get("rx_bytes", 0)) + int(result.get("tx_bytes", 0))
                     if state["last_bytes"] is not None and total_bytes >= state["last_bytes"]:

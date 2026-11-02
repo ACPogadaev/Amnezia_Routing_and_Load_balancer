@@ -240,7 +240,7 @@ def sha256(path: pathlib.Path) -> str:
 
 
 def render_tree(source: pathlib.Path, destination: pathlib.Path, mapping: dict[str, str]) -> None:
-    shutil.copytree(source, destination)
+    shutil.copytree(source, destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
     for path in sorted(destination.rglob("*")):
         if not path.is_file():
             continue

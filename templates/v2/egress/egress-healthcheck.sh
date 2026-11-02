@@ -33,31 +33,41 @@ INSTANCE_ID=$(sed -n '1p' "$EGRESS_READY_FILE" 2>/dev/null || true)
 
 mkdir -p "$RUN_DIR"
 chmod 0755 "$RUN_DIR"
+cached_result() {
+    max_age=$1
+    [ "$MODE" = --docker ] && [ -s "$CACHE" ] || return 2
+    # Read one atomic version; separate reads could observe different samples.
+    cached=$(cat "$CACHE") || return 2
+    cache_epoch=$(printf '%s\n' "$cached" | sed -nE 's/.*"sample_epoch":([0-9]+).*/\1/p')
+    cache_generation=$(printf '%s\n' "$cached" | sed -nE 's/.*"config_generation":"([^"]+)".*/\1/p')
+    cache_instance=$(printf '%s\n' "$cached" | sed -nE 's/.*"instance_id":"([^"]+)".*/\1/p')
+    case "$cache_epoch" in ''|*[!0-9]*) return 2 ;; esac
+    cache_age=$((STARTED - cache_epoch))
+    if [ "$cache_generation" = "$CONFIG_GENERATION" ] &&
+       [ -n "$INSTANCE_ID" ] && [ "$cache_instance" = "$INSTANCE_ID" ] &&
+       [ "$cache_age" -ge 0 ] && [ "$cache_age" -le "$max_age" ] &&
+       [ "$(sed -n '1p' "$EGRESS_READY_FILE" 2>/dev/null)" = "$INSTANCE_ID" ]; then
+        printf '%s\n' "$cached"
+        printf '%s\n' "$cached" | grep -q '"healthy":true'
+        return $?
+    fi
+    return 2
+}
+
+# Docker reuses a recent controller sample even when the collector is idle.
+# A stale/missing cache falls back to a real probe, including standalone v2.
+CACHE_TTL=${HEALTH_INTERVAL_SECONDS:-10}
+[ "$CACHE_TTL" -le "$HEALTH_MAX_SAMPLE_AGE_SECONDS" ] || CACHE_TTL=$HEALTH_MAX_SAMPLE_AGE_SECONDS
+cached_result "$CACHE_TTL"
+cache_status=$?
+[ "$cache_status" -eq 2 ] || exit "$cache_status"
 exec 9>"$LOCK"
 if ! flock -n 9; then
-    # The controller and Docker intentionally share one probe lock.  Docker's
-    # 30-second scheduler can coincide with the controller's 10-second probe;
-    # reuse the last complete sample in Docker mode instead of turning a mere
-    # collector collision into a false container-health failure.
-    if [ "$MODE" = --docker ] && [ -s "$CACHE" ]; then
-        cache_epoch=$(sed -nE 's/.*"sample_epoch":([0-9]+).*/\1/p' "$CACHE")
-        cache_generation=$(sed -nE 's/.*"config_generation":"([^"]+)".*/\1/p' "$CACHE")
-        cache_instance=$(sed -nE 's/.*"instance_id":"([^"]+)".*/\1/p' "$CACHE")
-        case "$cache_epoch" in ''|*[!0-9]*) cache_epoch=0 ;; esac
-        cache_age=$((STARTED - cache_epoch))
-        if [ "$cache_generation" = "$CONFIG_GENERATION" ] && \
-           [ -n "$INSTANCE_ID" ] && [ "$cache_instance" = "$INSTANCE_ID" ] && \
-           [ "$cache_age" -ge 0 ] && [ "$cache_age" -le "$HEALTH_MAX_SAMPLE_AGE_SECONDS" ]; then
-            cat "$CACHE"
-            grep -q '"healthy":true' "$CACHE"
-            exit $?
-        fi
-        printf '{"schema_version":1,"sample_id":"%s","sample_epoch":%s,"instance_id":"%s","config_generation":"%s","healthy":false,"reason":"collector_stale","reason_scope":"collector","observer":null,"exit_ip":null,"handshake_age":null,"rx_bytes":null,"tx_bytes":null,"duration_ms":0}\n' \
-            "$SAMPLE_ID" "$STARTED" "$INSTANCE_ID" "$CONFIG_GENERATION"
-        exit 1
-    fi
-    printf '{"schema_version":1,"sample_id":"%s","sample_epoch":%s,"instance_id":"%s","config_generation":"%s","healthy":false,"reason":"probe_busy","reason_scope":"collector","observer":null,"exit_ip":null,"handshake_age":null,"rx_bytes":null,"tx_bytes":null,"duration_ms":%s}\n' \
-        "$SAMPLE_ID" "$STARTED" "$INSTANCE_ID" "$CONFIG_GENERATION" "$((PROBE_TIMEOUT * 1000))"
+    cached_result "$HEALTH_MAX_SAMPLE_AGE_SECONDS"
+    cache_status=$?
+    [ "$cache_status" -eq 2 ] || exit "$cache_status"
+    printf '{"schema_version":1,"sample_id":"%s","sample_epoch":%s,"instance_id":"%s","config_generation":"%s","healthy":false,"reason":"probe_busy","reason_scope":"collector","observer":null,"exit_ip":null,"handshake_age":null,"rx_bytes":null,"tx_bytes":null,"duration_ms":0}\n' \
+        "$SAMPLE_ID" "$STARTED" "$INSTANCE_ID" "$CONFIG_GENERATION"
     exit 1
 fi
 
