@@ -4,6 +4,8 @@ Wants=docker.service
 Requires=amnezia-lb-v2-guard.service
 After=docker.service amnezia-lb-v2-guard.service
 Before=amnezia-lb-v2-pilot.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple

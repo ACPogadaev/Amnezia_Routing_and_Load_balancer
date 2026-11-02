@@ -73,6 +73,12 @@ def canonical_rule(tokens):
                                  and not item[2])))
 
 
+def option_values(tokens, names):
+    """Inspect named switches without interpreting opaque extension arguments."""
+    return [(tokens[index + 1], index > 0 and tokens[index - 1] == "!")
+            for index, token in enumerate(tokens[:-1]) if token in names]
+
+
 class Rules:
     def __init__(self, text):
         self.chains = {}
@@ -94,9 +100,12 @@ class Rules:
                 self.chains[key] = []
             elif line.startswith("-A "):
                 tokens = shlex.split(line)
+                require(len(tokens) >= 3, "incomplete iptables rule")
                 key = (table, tokens[1])
                 require(key in self.chains, f"undeclared chain {key}")
-                self.chains[key].append(canonical_rule(tokens[2:]))
+                # Foreign chains can contain arbitrary multi-argument match
+                # extensions. Preserve tokens; only exact() parses owned rules.
+                self.chains[key].append(tuple(tokens[2:]))
             else:
                 raise ValueError(f"unsupported iptables-save line: {line[:80]}")
         require(table is None, "incomplete iptables snapshot")
@@ -106,13 +115,15 @@ class Rules:
         return self.chains[table, chain]
 
     def exact(self, table, chain, expected):
-        require(self.chain(table, chain) == [canonical_rule(rule) for rule in expected],
+        require(chain.startswith("AMNEZIA_LB_"), "exact validation is restricted to project chains")
+        require([canonical_rule(rule) for rule in self.chain(table, chain)] == [canonical_rule(rule) for rule in expected],
                 f"rules/order differ in {table}/{chain}")
 
     def jump(self, table, parent, target, position=0):
         rules = self.chain(table, parent)
-        references = [i for i, rule in enumerate(rules) if ("-j", target, False) in rule]
-        require(references == [position] and rules[position] == canonical_rule(f"-j {target}"),
+        references = [i for i, rule in enumerate(rules)
+                      if any(value == target for value, _ in option_values(rule, {"-j", "--jump", "-g", "--goto"}))]
+        require(references == [position] and rules[position] in {("-j", target), ("--jump", target)},
                 f"{target} must have one unconditional jump at {parent}[{position}]")
 
 
@@ -175,10 +186,12 @@ def validate_host_v3(rules, e):
 def validate_dnat(rules, e):
     port = e["INGRESS_AWG_PORT"]
     matches = [rule for rule in rules.chain("nat", "DOCKER")
-               if ("--dport", port, False) in rule and ("-j", "DNAT", False) in rule]
+               if any(value == port for value, _ in option_values(rule, {"--dport", "--destination-port"}))
+               and ("DNAT", False) in option_values(rule, {"-j", "--jump"})]
     require(len(matches) == 1, "expected one ingress Docker DNAT")
-    require(("-p", "udp", False) in matches[0] and
-            ("--to-destination", f"{e['INGRESS_OUTER_IP']}:{port}", False) in matches[0],
+    require(option_values(matches[0], {"-p", "--protocol"}) == [("udp", False)] and
+            option_values(matches[0], {"--dport", "--destination-port"}) == [(port, False)] and
+            option_values(matches[0], {"--to-destination"}) == [(f"{e['INGRESS_OUTER_IP']}:{port}", False)],
             "wrong ingress Docker DNAT")
 
 
@@ -211,7 +224,7 @@ def validate_ingress_rules(v4, v6, env, interfaces):
                                   ("filter", "FORWARD", "AMNEZIA_LB_V2_FORWARD")):
         v4.jump(table, parent, target)
     test = v4.chain("filter", "AMNEZIA_LB_V2_TEST")
-    require(test and test[-1] == canonical_rule("-j RETURN"), "self-test chain must end in RETURN")
+    require(test and canonical_rule(test[-1]) == canonical_rule("-j RETURN"), "self-test chain must end in RETURN")
     v6.jump("filter", "FORWARD", "AMNEZIA_LB_V2_IPV6")
     v6.exact("filter", "AMNEZIA_LB_V2_IPV6", [f"-i {env['INGRESS_AWG_IF']} -j REJECT", "-j RETURN"])
 

@@ -40,6 +40,9 @@ class LinuxRuntimeTests(unittest.TestCase):
         self.ns("ip", "link", "add", self.env["INGRESS_AWG_IF"], "type", "dummy")
         self.ns("iptables-restore", input=INGRESS_SAVE.format_map(self.env))
         self.ns("ip6tables-restore", input=V6_SAVE.format_map(self.env))
+        for chain in ("ufw-before-forward", "f2b-sshd", "DOCKER-FORWARD"):
+            self.ns("iptables", "-N", chain)
+            self.ns("iptables", "-A", chain, "-p", "tcp", "--tcp-flags", "FIN,SYN,RST,ACK", "SYN", "-j", "RETURN")
         for table, gateway, device, source in (("main", self.env["INGRESS_OUTER_GATEWAY"], "outer", self.env["INGRESS_OUTER_IP"]),
                                               (self.env["OUTER_ROUTE_TABLE"], self.env["INGRESS_OUTER_GATEWAY"], "outer", self.env["INGRESS_OUTER_IP"]),
                                               (self.env["DIRECT_ROUTE_TABLE"], self.env["DIRECT_GATEWAY"], "direct", self.env["INGRESS_DIRECT_IP"])):

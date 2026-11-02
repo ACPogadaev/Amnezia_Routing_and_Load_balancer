@@ -33,6 +33,60 @@ class RuntimeCheckTests(unittest.TestCase):
         validate_ingress_rules(Rules(INGRESS_SAVE.format_map(self.env)), Rules(V6_SAVE.format_map(self.env)),
                                self.env, ["outer", "aux", "direct", "transit"])
 
+    def test_foreign_ufw_fail2ban_docker_and_multi_argument_rules_are_opaque(self):
+        snapshot = HOST_SAVE.format_map(self.env)
+        snapshot = snapshot.replace(":DOCKER-USER - [0:0]", "\n".join([
+            ":DOCKER-USER - [0:0]", ":ufw-before-forward - [0:0]",
+            ":f2b-sshd - [0:0]", ":DOCKER-FORWARD - [0:0]",
+        ]))
+        snapshot = snapshot.replace("COMMIT\n*raw", "\n".join([
+            "-A ufw-before-forward -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -j RETURN",
+            "-A f2b-sshd -m set --match-set example src -j DROP",
+            '-A DOCKER-FORWARD -m comment --comment "Docker --tcp-flags FIN,SYN SYN" -j ACCEPT',
+            "-A DOCKER-USER -m set --match-set trusted src,dst -j RETURN",
+            '-A DOCKER-USER -m comment --comment "-j AMNEZIA_LB_V2" -j RETURN',
+            "COMMIT", "*raw",
+        ]))
+        snapshot = snapshot.replace("-A PREROUTING -j AMNEZIA_LB_MULTI_V3_RAW\n", "\n".join([
+            "-A PREROUTING -j AMNEZIA_LB_MULTI_V3_RAW",
+            "-A PREROUTING -p tcp --tcp-flags FIN,SYN,RST,ACK SYN -j RETURN", "",
+        ]))
+        snapshot = snapshot.replace("-A POSTROUTING -j AMNEZIA_LB_MULTI_V3_NAT\n", "\n".join([
+            "-A POSTROUTING -j AMNEZIA_LB_MULTI_V3_NAT",
+            "-A POSTROUTING -m set --match-set trusted src -j RETURN", "",
+        ]))
+        snapshot = snapshot.replace("-A DOCKER -p udp", "\n".join([
+            "-A DOCKER -p tcp --tcp-flags FIN,SYN,RST,ACK SYN --dport 12345 -j DNAT --to-destination 192.0.2.99:12345",
+            "-A DOCKER -p udp",
+        ]))
+        rules = Rules(snapshot)
+        self.assertIn("--match-set", rules.chain("filter", "f2b-sshd")[0])
+        validate_host_v2(rules, self.env)
+        validate_host_v3(rules, self.env)
+        validate_dnat(rules, self.env)
+
+    def test_docker_dnat_with_foreign_match_extension_only_checks_its_owned_tuple(self):
+        snapshot = HOST_SAVE.format_map(self.env).replace("-A DOCKER -p udp", "-A DOCKER -m set --match-set example src -p udp")
+        validate_dnat(Rules(snapshot), self.env)
+        with self.assertRaises(ValueError):
+            validate_dnat(Rules(snapshot.replace("--dport 31000", "! --dport 31000")), self.env)
+
+    def test_opaque_parent_rules_cannot_hide_conditional_or_duplicate_project_jumps(self):
+        original = HOST_SAVE.format_map(self.env)
+        for parent, target in (("DOCKER-USER", "AMNEZIA_LB_V2"), ("PREROUTING", "AMNEZIA_LB_MULTI_V3_RAW"),
+                               ("POSTROUTING", "AMNEZIA_LB_MULTI_V3_NAT")):
+            jump = f"-A {parent} -j {target}"
+            for replacement in (f"-A {parent} -p tcp --tcp-flags FIN,SYN SYN -j {target}",
+                                jump + f"\n-A {parent} --goto {target}",
+                                f"-A {parent} -p tcp --tcp-flags FIN,SYN SYN -j RETURN\n" + jump):
+                with self.subTest(parent=parent, replacement=replacement), self.assertRaises(ValueError):
+                    validate_host_v3(Rules(original.replace(jump, replacement)), self.env)
+
+    def test_unknown_extension_in_owned_chain_is_still_rejected(self):
+        snapshot = HOST_SAVE.format_map(self.env).replace("-A AMNEZIA_LB_V2 -j RETURN", "-A AMNEZIA_LB_V2 -p tcp --tcp-flags FIN,SYN SYN -j RETURN")
+        with self.assertRaises(ValueError):
+            validate_host_v2(Rules(snapshot), self.env)
+
     def test_changed_ports_negation_extra_matches_and_parent_order_fail_closed(self):
         original = HOST_SAVE.format_map(self.env)
         mutations = [
