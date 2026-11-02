@@ -33,6 +33,8 @@ AWG-профили и локальные overrides. Fresh-install скрипты
 - отсутствие пересечения RETIRED_MARKS с активными 0x201/0x202/0x203. Возврат ранее
   удалённого 0x203 требует отдельного разбора старых conntrack entries;
 - остановка любых других ручных rollout/repair операций;
+- исходные доверенные `installed-manifest.sha256` для **обоих** runtime-каталогов;
+  их нельзя заново вычислять по текущим файлам ради прохождения staging;
 - исходный release из проверенного commit, зелёный CI, sha256sum -c SHA256SUMS.
 
 ## 2. Приватная резервная копия и baseline 15 минут
@@ -75,7 +77,9 @@ Inspect сохраняет container ID, StartedAt, PID, restart count и исх
 Если проект задаётся через локальный override, передать в compose config его
 исходный --project-name из labels/inventory. Staging проверит совпадение project.
 Дополнительно сохранить ingress namespace rules/routes/iptables/nft по его текущему
-PID. Существующие installed-manifest и контрольные суммы уже входят в копии etc.
+PID. Существующие installed-manifest уже входят в копии etc и сохраняются без
+изменений. Backup фиксирует текущее состояние; само копирование не подтверждает
+его соответствие доверенному manifest. Это обязательно проверит staging tool.
 
 Собирать baseline **до** запуска теневых проверок нового кода. Например:
 
@@ -126,13 +130,79 @@ python3 "$PROJECT_ROOT/tools/prepare-cpu-upgrade.py" \
     --output "$STAGE"
 ```
 
-Tool проверяет checksums, наличие трёх выходов, метки, уникальность адресов и
-endpoint pairs, интервалы и режим recovery. Затем копирует исходный локальный
-runtime и заменяет только перечисленные в upgrade-report.json CPU-файлы:
+До создания output tool проверяет release и **оба исходных** installed-manifest.
+Абсолютные пути `/etc/amnezia-lb-v2/...` и `/etc/amnezia-lb-multi-v3/...`
+сопоставляются файлам внутри соответствующих baseline-копий. Проверяется SHA256
+каждой записи. Отсутствующие manifests/файлы, дубли путей, пути другого runtime,
+выход за пределы backup, symlinks/junctions и неперечисленные сохраняемые файлы
+отклоняются. `__pycache__`, `*.pyc`, `*.pyo` не копируются; если они перечислены
+в исходном manifest, их исходные хеши всё равно проверяются.
+
+Также проверяются наличие трёх выходов, метки, уникальность адресов и endpoint
+pairs, интервалы и режим recovery. После копирования tool повторно сверяет
+состав и хеши обеих копий с уже проверенным снимком. Только затем заменяет
+перечисленные в upgrade-report.json CPU-файлы и создаёт новые manifests:
 runtime_checks/runtime-collect/ingress-router, wrappers, RPDB/default-route
 validators, controller, verify/verify-state и оба healthcheck. Новая ingress
 systemd unit входит в staging. Остальные units, guards/loaders и локальные
 сетевые параметры сохраняются.
+
+При ошибке staging не использовать; если output уже появился из-за ошибки
+копирования, для следующей попытки выбрать новый каталог. Новый manifest не
+создаётся до успешной проверки обеих baseline-копий.
+
+### Явно рассмотренные локальные изменения
+
+По умолчанию любое несовпадение хеша останавливает staging, включая файл,
+который новый release впоследствии заменит. Не исправлять исходный manifest
+под изменённые файлы. Если manifest отсутствует либо его происхождение неизвестно,
+сначала отдельно восстановить и проверить baseline из доверенных исходников;
+автоматического fallback нет. Контрольная сумма подтверждает соответствие
+manifest, но не является подписью и сама по себе не доказывает его происхождение.
+
+Для намеренного изменения **уже перечисленного** файла отдельно изучить diff и
+зафиксировать результат проверки в приватном JSON. Пример структуры ниже;
+значения `<...>` заменить реальными SHA256 и ссылкой на результат проверки.
+`expected_sha256` берётся из неизменённого исходного manifest,
+`reviewed_sha256` — от рассмотренного изменённого файла. `path` задаётся
+относительно выбранного baseline без `/etc/...` и без `..`.
+
+```json
+{
+  "schema": 1,
+  "reviewed_by": "operator-name",
+  "reviewed_at": "2026-11-02T12:00:00+00:00",
+  "reference": "<private-review-reference>",
+  "baseline_manifests": {
+    "v2": "<sha256-of-original-v2-manifest>",
+    "v3": "<sha256-of-original-v3-manifest>"
+  },
+  "changes": [
+    {
+      "baseline": "v2",
+      "path": "host/guard-load.sh",
+      "expected_sha256": "<sha256-listed-in-original-manifest>",
+      "reviewed_sha256": "<sha256-of-reviewed-local-file>",
+      "reason": "<reason-and-result-of-review>"
+    }
+  ]
+}
+```
+
+После отдельной проверки передать этот файл дополнительным аргументом
+`--baseline-review /private/baseline-review.json` к команде staging. Tool не
+генерирует разрешения автоматически: запись связана с хешами **обоих** исходных
+manifests и точными старым/новым хешами каждого изменения. Дубли, несовпадающие,
+неиспользованные и устаревшие разрешения отклоняются. Добавления/удаления файлов,
+неперечисленные файлы и небезопасные пути этим способом разрешить нельзя — для
+них нужна отдельная проверка и сборка доверенного baseline.
+
+В `upgrade-report.json` сохраняются хеши исходных manifests, число проверенных
+записей и весь использованный review с SHA256 самого JSON. Без разрешений
+`baseline_review` равен `null`. Проверить эти сведения вместе с diff перед
+maintenance; JSON и отчёт остаются приватными вместе с backup.
+
+### Проверка собранного комплекта
 
 Оба **действующих** Compose JSON сохраняют исходные services, names, mounts и
 networks; в environment трёх сервисов добавляется HEALTH_INTERVAL_SECONDS.
