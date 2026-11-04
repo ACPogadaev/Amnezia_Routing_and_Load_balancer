@@ -136,7 +136,7 @@ def install(args, runner):
     runner.docker("compose", "--project-name", render.PROJECT, "-f", "-", "config", "--quiet", input=json.dumps(render.compose(config)))
     print(json.dumps({"environment": environment, "plan": summary(config)}, indent=2, ensure_ascii=False), flush=True)
     if args.check_only:
-        print("Проверки пройдены. Система не изменялась.")
+        print("Проверки пройдены. Установка не выполнялась.")
         return 0
     with operation_lock():
         # Recheck after acquiring the process-wide installation lock.
@@ -246,7 +246,7 @@ def uninstall(runner):
                 remove_policy(runner, priority, runtime)
             for table in (render.TRANSIT_TABLE, render.DIRECT_TABLE):
                 runtime.ns("ip", "route", "flush", "table", str(table), "proto", "99", check=False)
-            runtime.ns("nft", "delete", "table", "inet", render.TABLE, check=False)
+            remove_nft_table(runner, runtime)
             if runtime.baseline.get("ingress_identity") == list(runtime.ingress_identity):
                 for key, value in runtime.baseline["ingress_sysctls"].items():
                     runtime.ns("sysctl", "-q", "-w", f"{key}={value}", check=False)
@@ -272,7 +272,7 @@ def uninstall(runner):
         DROPIN.unlink(missing_ok=True)
         runner.run(["systemctl", "daemon-reload"])
         runner.run(["systemctl", "disable", "--now", "amnezia-router-guard.service"], check=False)
-        runner.run(["nft", "delete", "table", "inet", render.TABLE], check=False)
+        remove_nft_table(runner)
         for name in ("amnezia-router.service", "amnezia-router-guard.service"):
             (UNITS / name).unlink(missing_ok=True)
         runner.run(["systemctl", "daemon-reload"])
@@ -291,6 +291,23 @@ def uninstall(runner):
             BACKUP.rename(BACKUP.with_name(BACKUP.name + ".uninstalled-" + stamp))
         print(f"Службы и сетевые ресурсы удалены. Исходный прямой путь восстановлен. Профили сохранены в {archive}; можно выполнить новую установку.")
     return 0
+
+
+def remove_nft_table(runner, runtime=None):
+    call = runtime.ns if runtime else lambda *a, **k: runner.run(list(a), **k)
+
+    def present():
+        snapshot = json.loads(call("nft", "-j", "list", "tables").stdout)
+        require(isinstance(snapshot, dict) and isinstance(snapshot.get("nftables"), list), "Cannot verify nftables table inventory")
+        require(all(isinstance(item, dict) for item in snapshot["nftables"]), "Invalid nftables table inventory")
+        tables = [item["table"] for item in snapshot["nftables"] if "table" in item]
+        require(all(isinstance(table, dict) and isinstance(table.get("family"), str) and isinstance(table.get("name"), str)
+                    for table in tables), "Invalid nftables table inventory")
+        return any(table["family"] == "inet" and table["name"] == render.TABLE for table in tables)
+
+    if present():
+        call("nft", "delete", "table", "inet", render.TABLE)
+    require(not present(), "Managed nftables table remains after removal; uninstall stopped")
 
 
 def remove_policy(runner, priority, runtime=None):

@@ -7,11 +7,12 @@ from pathlib import Path
 import select
 import subprocess
 import sys
+import types
 import unittest
 import uuid
 
 from test_universal import config
-from amnezia_router import render
+from amnezia_router import cli, render
 from amnezia_router.balance import FAIL_MARK, Health, bucket_map, pinned_mark
 from amnezia_router.runtime import Runtime, validate_policy_rule
 from amnezia_router.system import Runner
@@ -20,6 +21,20 @@ from amnezia_router.system import Runner
 @unittest.skipUnless(sys.platform == "linux" and os.environ.get("AMNEZIA_ROUTER_INTEGRATION") == "1",
                      "requires opt-in isolated Linux namespaces")
 class PacketRoutingTests(unittest.TestCase):
+    def test_nft_table_removal_verifies_absence_and_preserves_foreign_tables(self):
+        namespace = self.namespace("remove")
+        call = lambda *a, **k: self.ns(namespace, *a, **k)
+        call("nft", "add", "table", "inet", "foreign")
+        call("nft", "add", "table", "ip", render.TABLE)
+        runner = types.SimpleNamespace(run=lambda a, **k: call(*a, **k))
+        for runtime in (None, types.SimpleNamespace(ns=call)):
+            call("nft", "add", "table", "inet", render.TABLE)
+            cli.remove_nft_table(runner, runtime)
+            cli.remove_nft_table(runner, runtime)
+            tables = json.loads(call("nft", "-j", "list", "tables").stdout)["nftables"]
+            actual = {(t["table"]["family"], t["table"]["name"]) for t in tables if "table" in t}
+            self.assertEqual(actual, {("inet", "foreign"), ("ip", render.TABLE)})
+
     def command(self, *args, **kwargs):
         return subprocess.run(args, check=True, capture_output=True, text=True, **kwargs)
 

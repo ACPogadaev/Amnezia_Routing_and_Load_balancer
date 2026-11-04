@@ -123,12 +123,13 @@ def discovery(runner, container, awg_if=None, client_subnet=None, egress_image=N
     public_if = identifier(public_routes[0]["dev"])
     port = int(runner.docker("exec", container, "awg", "show", awg_if, "listen-port").stdout.strip())
     require(1 <= port <= 65535, "Invalid ingress listen port")
-    # Ensure the same installed AWG image can run the egress scripts without downloads.
-    runner.docker("image", "inspect", data["Image"])
+    # Probe the immutable image, rather than a running container's writable layer.
     selected_image = json.loads(runner.docker("image", "inspect", egress_image or data["Image"]).stdout)[0]["Id"]
-    if not egress_image:
-        tools = runner.docker("exec", container, "sh", "-c", "for tool in awg awg-quick dumb-init bash curl ip iptables ip6tables flock sysctl timeout; do command -v \"$tool\" >/dev/null || exit 1; done", check=False)
-        require(tools.returncode == 0, "Ingress image lacks egress utilities. Prepare a local image with bash/curl/dumb-init/iproute2/iptables/util-linux and select --egress-image")
+    tools = runner.docker("run", "--rm", "--pull", "never", "--network", "none", "--no-healthcheck", "--read-only", "--cap-drop", "ALL",
+                          "--security-opt", "no-new-privileges", "--entrypoint", "/bin/sh", selected_image, "-c",
+                          "for tool in awg awg-quick amneziawg-go dumb-init bash curl ip iptables ip6tables flock sysctl timeout awk sed grep cat date mkdir chmod mv rm dirname sleep; do command -v \"$tool\" >/dev/null || exit 1; done",
+                          check=False)
+    require(tools.returncode == 0, "Selected egress image cannot run the required AWG/startup/healthcheck utilities. Prepare a compatible local image and select --egress-image")
     require(identity(runner.inspect(container)) == current, "Ingress restarted during discovery; retry")
     ingress = {"container": container, "interface": awg_if, "client_subnet": subnet,
                "port": port, "outer_interface": outer_if, "outer_gateway": ipv4(routes[0]["gateway"]),
