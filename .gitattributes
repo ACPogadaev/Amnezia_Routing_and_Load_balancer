@@ -5,3 +5,4 @@
 *.in text eol=lf
 *.service text eol=lf
 *.yaml text eol=lf
+universal/data/iana-ipv4-special-registry.csv -text whitespace=cr-at-eol
