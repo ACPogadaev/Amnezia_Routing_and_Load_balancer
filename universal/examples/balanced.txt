@@ -1,0 +1,3 @@
+# Example public IPv4/CIDR entries. Replace with your actual destinations.
+93.184.216.0/24
+8.8.8.8/32

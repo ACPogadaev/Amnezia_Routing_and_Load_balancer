@@ -1,0 +1,16 @@
+{
+  "ingress": {
+    "container": "amnezia-awg2",
+    "interface": "awg0",
+    "client_subnet": "10.8.1.0/24",
+    "port": 46777,
+    "outer_interface": "eth0",
+    "outer_gateway": "172.20.0.1",
+    "public_if": "eth0",
+    "image": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "attachments": [
+      {"name": "existing-amnezia-network", "bridge": "amn0", "address": "172.20.0.2"}
+    ]
+  },
+  "used_subnets": ["172.20.0.0/16", "10.8.1.0/24"]
+}

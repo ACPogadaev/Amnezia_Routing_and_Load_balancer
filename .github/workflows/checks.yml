@@ -16,8 +16,13 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Shell syntax
         run: find templates -name '*.sh' -print0 | xargs -0 -n 1 bash -n
+      - name: Universal router unit tests
+        run: python -m unittest discover -s universal/tests -v
+      - name: Universal router shell syntax
+        run: find universal -name '*.sh' -print0 | xargs -0 -n 1 bash -n
       - name: Isolated kernel integration
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq iproute2 iptables nftables
           sudo env AMNEZIA_LB_INTEGRATION=1 "$(command -v python)" -m unittest discover -s tests -p test_linux_runtime.py -v
+          sudo env AMNEZIA_ROUTER_INTEGRATION=1 "$(command -v python)" -m unittest discover -s universal/tests -p test_kernel.py -v

@@ -3,12 +3,22 @@ config/deployment.env
 *.conf
 *.key
 *.pem
+.env
+.env.*
+!.env.example
+**/secrets/
 routes.txt
 routes-*.txt
 
 # Generated artifacts
 dist/
 work/
+outputs/
+logs/
+*.log
+*.jsonl
+*.pcap
+*.pcapng
 data/iana-ipv4-special-registry.csv
 __pycache__/
 *.py[cod]
