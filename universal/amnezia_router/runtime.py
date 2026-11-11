@@ -48,15 +48,15 @@ def load_config(path=CONFIG):
     return validate_runtime(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
-def fingerprint(document):
-    def scrub(value):
-        if isinstance(value, dict):
-            return {k: scrub(v) for k, v in value.items() if k not in {"handle", "index", "packets", "bytes", "expires", "last"}}
-        if isinstance(value, list):
-            return [scrub(v) for v in value]
-        return value
+def fingerprint(snapshot):
+    def strip_runtime_fields(node):
+        for field in ("handle", "index", "packets", "bytes", "expires", "last"):
+            node.pop(field, None)
+        return node
+
+    document = json.loads(snapshot, object_hook=strip_runtime_fields)
     document = [entry for entry in document["nftables"] if "metainfo" not in entry]
-    return hashlib.sha256(json.dumps(scrub(document), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(document, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def canonical(tokens):
@@ -161,7 +161,7 @@ class Runtime:
 
     def nft_snapshot(self, ingress=False):
         args = ["nft", "-j", "list", "table", "inet", render.TABLE]
-        return json.loads((self.ns(*args) if ingress else self.runner.run(args)).stdout)
+        return (self.ns(*args) if ingress else self.runner.run(args)).stdout
 
     def nft_apply(self, text, ingress=False):
         call = self.ns if ingress else self.runner.run
@@ -439,6 +439,25 @@ class Runtime:
         except (ValueError, KeyError, IndexError, TypeError):
             return {"healthy": False, "reason": "invalid_sample"}, (*current, instance)
 
+    def collect_health(self):
+        def delayed_probe(egress, delay):
+            if not self.stopped.wait(delay):
+                return self.probe(egress)
+            return None
+
+        egresses = self.config["egresses"]
+        with ThreadPoolExecutor(max_workers=len(egresses)) as pool:
+            futures = [pool.submit(delayed_probe, egress, index) for index, egress in enumerate(egresses)]
+            for egress, future in zip(egresses, futures):
+                try:
+                    result = future.result()
+                except Exception:
+                    result = ({"healthy": False, "reason": "invalid_sample"}, None)
+                if self.stopped.is_set():
+                    return
+                sample, current = result
+                self.health[egress["id"]].update(sample, time.monotonic(), self.config, current)
+
     def apply_policy(self):
         marks = bucket_map(self.config["egresses"], self.health, self.config)
         fixed = pinned_mark(self.config, self.health)
@@ -490,14 +509,9 @@ class Runtime:
                         self.setup()
                         configured = True
                     self.validate_infrastructure()
-                    with ThreadPoolExecutor(max_workers=len(self.config["egresses"])) as pool:
-                        futures = {e["id"]: pool.submit(self.probe, e) for e in self.config["egresses"]}
-                        for egress in self.config["egresses"]:
-                            try:
-                                sample, current = futures[egress["id"]].result()
-                            except Exception:
-                                sample, current = {"healthy": False, "reason": "invalid_sample"}, None
-                            self.health[egress["id"]].update(sample, time.monotonic(), self.config, current)
+                    self.collect_health()
+                    if self.stopped.is_set():
+                        break
                     # Recheck live infrastructure after possibly slow probes, before opening admission.
                     self.validate_infrastructure()
                     if self.stopped.is_set():

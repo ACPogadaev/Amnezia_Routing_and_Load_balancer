@@ -112,7 +112,7 @@ class PacketRoutingTests(unittest.TestCase):
                 runtime.nft_apply(render.selector(c, bucket_map(c["egresses"], health, c), pinned_mark(c, health), {c["egresses"][-1]["mark"]}))
                 self.send(ingress)
                 self.assertFalse(select.select([p.stdout for p in receivers], [], [], 0.3)[0], "quarantined flow reached an egress")
-                table = runtime.nft_snapshot()
+                table = json.loads(runtime.nft_snapshot())
                 counters = [expr["counter"]["packets"] for entry in table["nftables"] if "rule" in entry and entry["rule"].get("chain") == "quarantine"
                             for expr in entry["rule"].get("expr", []) if "counter" in expr]
                 self.assertGreater(sum(counters), 0)

@@ -13,7 +13,7 @@ import tempfile
 import time
 
 from . import __version__, render
-from .config import ConfigError, load_routes, make_config, read_profile, require, ipv4
+from .config import DEFAULT_INTERVAL, ConfigError, load_routes, make_config, read_profile, require, ipv4
 from .runtime import BACKUP, CONFIG, STATE, Runtime, atomic_json, load_config
 from .system import Runner, discovery, identity, platform_checks, resource_checks
 
@@ -38,7 +38,8 @@ def arguments():
         command.add_argument("--ingress-interface")
         command.add_argument("--egress-image", help="Локальный образ с AWG и утилитами healthcheck; по умолчанию образ ingress")
         command.add_argument("--client-subnet", help="Подсеть клиентов, если адрес ingress-интерфейса задан с /32")
-        command.add_argument("--interval", type=int, default=10)
+        command.add_argument("--interval", type=int, default=DEFAULT_INTERVAL,
+                             help="Интервал проверок в секундах (по умолчанию: %(default)s)")
         if name == "install":
             command.add_argument("--check-only", action="store_true", help="Только проверки, без записи файлов, firewall и запуска служб")
             command.add_argument("--no-wait", action="store_true", help="Не ждать здоровья всех выходов после запуска")

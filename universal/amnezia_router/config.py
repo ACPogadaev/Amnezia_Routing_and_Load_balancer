@@ -9,6 +9,9 @@ from pathlib import Path
 import re
 
 
+DEFAULT_INTERVAL = 15
+
+
 class ConfigError(ValueError):
     pass
 
@@ -156,7 +159,7 @@ def network(name, subnet):
             "subnet": str(net), "gateway": str(net.network_address + 1), "address": str(net.network_address + 10)}
 
 
-def make_config(profiles, balanced, pinned, pin_egress, ingress, used, expected=None, interval=10):
+def make_config(profiles, balanced, pinned, pin_egress, ingress, used, expected=None, interval=DEFAULT_INTERVAL):
     require(1 <= len(profiles) <= 3, "Supply one to three --egress profiles")
     require(bool(balanced or pinned), "At least one route list must be non-empty")
     require(not pinned or pin_egress is not None, "--pinned-routes requires --pin-egress")
