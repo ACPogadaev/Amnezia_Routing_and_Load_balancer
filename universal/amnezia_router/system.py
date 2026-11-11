@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import closing
+from http.client import HTTPConnection, HTTPException
 import ipaddress
 import json
 import os
@@ -7,13 +9,40 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import socket
 import stat
 import subprocess
 import sys
+from urllib.parse import quote
 
 from .config import ConfigError, identifier, ipv4, require
 
 DOCKER_HOST = "unix:///var/run/docker.sock"
+
+
+class DockerConnection(HTTPConnection):
+    def connect(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(self.timeout)
+            sock.connect(DOCKER_HOST.removeprefix("unix://"))
+        except OSError:
+            sock.close()
+            raise
+        self.sock = sock
+
+    def get_json(self, path):
+        try:
+            self.request("GET", path)
+            with self.getresponse() as response:
+                if response.status != 200:
+                    raise RuntimeError(f"Docker API returned HTTP {response.status}")
+                data = json.load(response)
+        except (OSError, HTTPException, ValueError) as error:
+            # Docker response bodies may include container configuration.
+            raise RuntimeError(f"Cannot read Docker API response ({type(error).__name__})") from None
+        require(isinstance(data, dict), "Expected a Docker API object")
+        return data
 
 
 def route_table_entries(result, allow_missing=False):
@@ -48,9 +77,12 @@ class Runner:
         return self.run(["docker", "--host", DOCKER_HOST, *args], **kwargs)
 
     def inspect(self, container):
-        data = json.loads(self.docker("inspect", container).stdout)
-        require(len(data) == 1, "Expected one Docker container")
-        return data[0]
+        # Reuse the connection for version discovery and a fresh container read.
+        with closing(DockerConnection("localhost", timeout=30)) as connection:
+            version = connection.get_json("/version").get("ApiVersion")
+            require(isinstance(version, str) and re.fullmatch(r"[0-9]+\.[0-9]+", version),
+                    "Invalid Docker API version")
+            return connection.get_json(f"/v{version}/containers/{quote(container, safe='')}/json")
 
     def ns(self, pid, *args, **kwargs):
         return self.run(["nsenter", "-t", str(pid), "-n", "--", *args], **kwargs)
