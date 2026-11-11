@@ -220,7 +220,7 @@ class PolicyTests(unittest.TestCase):
             state.update(sample(n, False), n, c, (2,))
         statements = []
         runtime.nft_apply = statements.append
-        runtime.nft_snapshot = lambda: {"nftables": []}
+        runtime.nft_snapshot = lambda: '{"nftables": []}'
         runtime.ns = lambda *_a, **_k: types.SimpleNamespace(stdout="[]")
         result = runtime.apply_policy()
         self.assertIn(c["egresses"][1]["mark"], result["quarantined_marks"])
@@ -300,9 +300,25 @@ class RuntimeRegressionTests(unittest.TestCase):
         first = {"nftables": [{"metainfo": {"version": 1}}, {"rule": {"chain": "guard", "handle": 3, "expr": [{"counter": {"packets": 3, "bytes": 10}}, {"drop": None}]}}]}
         second = copy.deepcopy(first)
         second["nftables"][1]["rule"]["expr"][0]["counter"]["packets"] = 100
-        self.assertEqual(fingerprint(first), fingerprint(second))
+        self.assertEqual(fingerprint(json.dumps(first)), fingerprint(json.dumps(second)))
         second["nftables"][1]["rule"]["expr"][1] = {"accept": None}
-        self.assertNotEqual(fingerprint(first), fingerprint(second))
+        self.assertNotEqual(fingerprint(json.dumps(first)), fingerprint(json.dumps(second)))
+
+    def test_raw_fingerprint_preserves_the_previous_persisted_hash(self):
+        snapshot = {"nftables": [
+            {"metainfo": {"version": 1}},
+            {"set": {"name": "targets", "elem": [
+                {"elem": {"val": "93.184.216.34", "expires": 25, "timeout": 300}}]}},
+            {"rule": {"chain": "guard", "handle": 3,
+                      "expr": [{"counter": {"packets": 3, "bytes": 10}}, {"drop": None}]}}]}
+        expected = "a07c81a0b0c93de8b859749eb86b75d2e11a2fed696fc10954e068b1a4b0caa0"
+        self.assertEqual(fingerprint(json.dumps(snapshot)), expected)
+        for field in ("handle", "index", "packets", "bytes", "expires", "last"):
+            changed = copy.deepcopy(snapshot)
+            changed["nftables"][2]["rule"][field] = 999
+            self.assertEqual(fingerprint(json.dumps(changed)), expected)
+        snapshot["nftables"][1]["set"]["elem"][0]["elem"]["timeout"] = 301
+        self.assertNotEqual(fingerprint(json.dumps(snapshot)), expected)
 
     def test_foreign_same_named_builtin_in_another_table_does_not_break_validation(self):
         snapshot = "*mangle\n:FORWARD ACCEPT [0:0]\n-A FORWARD -p tcp -j ACCEPT\nCOMMIT\n*filter\n:FORWARD ACCEPT [0:0]\n:AMR_INGRESS - [0:0]\n-A FORWARD -j AMR_INGRESS\n-A AMR_INGRESS -j RETURN\nCOMMIT\n"

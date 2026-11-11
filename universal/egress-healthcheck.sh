@@ -55,8 +55,8 @@ cached_result() {
 }
 
 # Docker reuses a recent controller sample even when the collector is idle.
-# A stale/missing cache falls back to a real probe, including standalone v2.
-CACHE_TTL=${HEALTH_INTERVAL_SECONDS:-10}
+# A stale or missing cache falls back to a real probe.
+CACHE_TTL=${HEALTH_INTERVAL_SECONDS:-15}
 [ "$CACHE_TTL" -le "$HEALTH_MAX_SAMPLE_AGE_SECONDS" ] || CACHE_TTL=$HEALTH_MAX_SAMPLE_AGE_SECONDS
 cached_result "$CACHE_TTL"
 cache_status=$?
@@ -118,16 +118,38 @@ ip -o -4 addr show dev "$EGRESS_AWG_IF" | awk '{print $4}' | grep -Fxq "$EGRESS_
 [ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" = 1 ] || fail "forwarding_disabled" "local"
 
 ip -4 route show table "$EGRESS_POLICY_TABLE" | grep -Eq "^default dev ${EGRESS_AWG_IF}([[:space:]]|$)" || fail "missing_policy_default" "local"
-ip -o -4 rule show priority 20100 | grep -Fq "iif $OUTER_IF" || fail "missing_forward_lookup" "local"
-ip -o -4 rule show priority 20100 | grep -Fq "from $INGRESS_TRANSIT_IP" || fail "missing_forward_lookup" "local"
-ip -o -4 rule show priority 20100 | grep -Eq "lookup ${EGRESS_POLICY_TABLE}([[:space:]]|$)" || fail "missing_forward_lookup" "local"
-ip -o -4 rule show priority 20101 | grep -Fq "iif $OUTER_IF" || fail "missing_forward_unreachable" "local"
-ip -o -4 rule show priority 20101 | grep -Fq "from $INGRESS_TRANSIT_IP" || fail "missing_forward_unreachable" "local"
-ip -o -4 rule show priority 20101 | grep -Fq "unreachable" || fail "missing_forward_unreachable" "local"
-ip -o -4 rule show priority 20110 | grep -Fq "from $EGRESS_AWG_IP" || fail "missing_health_lookup" "local"
-ip -o -4 rule show priority 20110 | grep -Eq "lookup ${EGRESS_POLICY_TABLE}([[:space:]]|$)" || fail "missing_health_lookup" "local"
-ip -o -4 rule show priority 20111 | grep -Fq "from $EGRESS_AWG_IP" || fail "missing_health_unreachable" "local"
-ip -o -4 rule show priority 20111 | grep -Fq "unreachable" || fail "missing_health_unreachable" "local"
+policy_rules=$(LC_ALL=C ip -N -o -4 rule show) || fail "missing_forward_lookup" "local"
+policy_failure=$(awk -v transit="$INGRESS_TRANSIT_IP" -v awg="$EGRESS_AWG_IP" \
+    -v outer="$OUTER_IF" -v table="$EGRESS_POLICY_TABLE" '
+    function matches(address, interface, reject,    i, key, value, source, device, lookup, unreachable) {
+        for (i = 2; i <= NF; i++) {
+            key = $i
+            if ((key == "unreachable" || key == "7") && !unreachable) {
+                unreachable = 1
+                continue
+            }
+            if (i == NF) return 0
+            value = $(++i)
+            if (key == "from" && source == "") source = value
+            else if (key == "iif" && device == "") device = value
+            else if (key == "lookup" && lookup == "") lookup = value
+            else if (key != "proto" && key != "protocol") return 0
+        }
+        return (source == address || source == address "/32") && device == interface &&
+               (reject ? (unreachable && lookup == "") : (!unreachable && lookup == table))
+    }
+    $1 ~ /^201(00|01|10|11):$/ { seen[$1]++ }
+    $1 == "20100:" { valid[$1] = matches(transit, outer, 0) }
+    $1 == "20101:" { valid[$1] = matches(transit, outer, 1) }
+    $1 == "20110:" { valid[$1] = matches(awg, "", 0) }
+    $1 == "20111:" { valid[$1] = matches(awg, "", 1) }
+    END {
+        if (seen["20100:"] != 1 || !valid["20100:"]) print "missing_forward_lookup"
+        else if (seen["20101:"] != 1 || !valid["20101:"]) print "missing_forward_unreachable"
+        else if (seen["20110:"] != 1 || !valid["20110:"]) print "missing_health_lookup"
+        else if (seen["20111:"] != 1 || !valid["20111:"]) print "missing_health_unreachable"
+    }' <<< "$policy_rules") || fail "missing_forward_lookup" "local"
+[ -z "$policy_failure" ] || fail "$policy_failure" "local"
 
 iptables -C FORWARD -i "$OUTER_IF" -o "$EGRESS_AWG_IF" -s "$INGRESS_TRANSIT_IP/32" -j ACCEPT >/dev/null 2>&1 || fail "missing_forward_out" "local"
 iptables -C FORWARD -i "$EGRESS_AWG_IF" -o "$OUTER_IF" -d "$INGRESS_TRANSIT_IP/32" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1 || fail "missing_forward_return" "local"
